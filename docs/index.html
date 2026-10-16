@@ -11,19 +11,17 @@
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <script>
-      // Ensure trailing slash for GitHub Pages so relative assets (./assets/...) always resolve correctly
-      (function() {
-        var p = window.location.pathname;
-        if (p && !p.endsWith('/') && !p.slice(p.lastIndexOf('/')).includes('.')) {
-          window.history.replaceState(null, '', p + '/' + window.location.search + window.location.hash);
-        }
-      })();
+      // Fallback: If GitHub Pages serves from repository root (/ (root)) instead of /docs or GitHub Actions:
+      if (window.location.hostname.includes('github.io') && !window.location.pathname.includes('/docs')) {
+        var base = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname + '/';
+        window.location.replace(base + 'docs/' + window.location.search + window.location.hash);
+      }
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <script type="module" crossorigin src="./assets/index-B6UXn9iI.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-BXmKT2-l.css">
+    <script type="module" crossorigin src="./assets/index-Bc6vvQTB.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CipPN_R3.css">
   </head>
   <body class="bg-slate-50 text-slate-900 antialiased selection:bg-sky-500 selection:text-white">
     <div id="root"></div>
