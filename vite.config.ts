@@ -6,7 +6,7 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
-    // Relative base ensures asset URLs resolve correctly on any GitHub Pages repository name
+    // Relative base ensures asset URLs resolve correctly on any GitHub Pages repository name or domain
     base: './',
     plugins: [
       react(), 
@@ -15,6 +15,7 @@ export default defineConfig(() => {
         name: 'github-pages-helper',
         closeBundle() {
           const distDir = path.resolve(process.cwd(), 'dist');
+          const docsDir = path.resolve(process.cwd(), 'docs');
           const indexPath = path.join(distDir, 'index.html');
           const notFoundPath = path.join(distDir, '404.html');
           const noJekyllPath = path.join(distDir, '.nojekyll');
@@ -25,6 +26,11 @@ export default defineConfig(() => {
           }
           // Ensure .nojekyll exists in dist
           fs.writeFileSync(noJekyllPath, '# Disable Jekyll\n');
+
+          // Also mirror dist into docs/ so the user can deploy via GitHub Pages "Deploy from branch -> /docs"
+          if (fs.existsSync(distDir)) {
+            fs.cpSync(distDir, docsDir, { recursive: true, force: true });
+          }
         }
       }
     ],
