@@ -4,39 +4,27 @@ import path from 'path';
 import fs from 'fs';
 import {defineConfig} from 'vite';
 
-export default defineConfig(({ command }) => {
-  // Base path resolution for GitHub Pages:
-  // In development (dev server): use root '/'
-  // In production (build):
-  // 1. If BASE_URL is set (from GitHub Actions steps.pages.outputs.base_path), use it
-  // 2. If GITHUB_REPOSITORY is present ('user/planification'), use `/${repo}/`
-  // 3. Default fallback to '/planification/'
-  let base = '/';
-  if (command === 'build') {
-    if (process.env.BASE_URL) {
-      base = process.env.BASE_URL.endsWith('/') ? process.env.BASE_URL : `${process.env.BASE_URL}/`;
-    } else if (process.env.GITHUB_REPOSITORY) {
-      const repo = process.env.GITHUB_REPOSITORY.split('/')[1];
-      base = `/${repo}/`;
-    } else {
-      base = '/planification/';
-    }
-  }
-
+export default defineConfig(() => {
   return {
-    base,
+    // Relative base ensures asset URLs resolve correctly on any GitHub Pages repository name
+    base: './',
     plugins: [
       react(), 
       tailwindcss(),
       {
-        name: 'copy-404-for-github-pages',
+        name: 'github-pages-helper',
         closeBundle() {
           const distDir = path.resolve(process.cwd(), 'dist');
           const indexPath = path.join(distDir, 'index.html');
           const notFoundPath = path.join(distDir, '404.html');
+          const noJekyllPath = path.join(distDir, '.nojekyll');
+
+          // Ensure 404.html fallback exists for GitHub Pages SPA routing
           if (fs.existsSync(indexPath)) {
             fs.copyFileSync(indexPath, notFoundPath);
           }
+          // Ensure .nojekyll exists in dist
+          fs.writeFileSync(noJekyllPath, '# Disable Jekyll\n');
         }
       }
     ],
