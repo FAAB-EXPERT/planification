@@ -1,0 +1,8 @@
+{
+  "name": "CNRA Pilotage Stratégique PSD & Suivi des Opérations",
+  "description": "Plateforme intégrée de gouvernance et pilotage stratégique : cadrage décennal, suivi opérationnel des tâches, analyse des goulots d'étranglement, diagramme de Gantt interactif et tableau Kanban.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
