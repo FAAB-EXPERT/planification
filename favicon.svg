@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" fill="none">
+  <defs>
+    <linearGradient id="rubyGrad" x1="20" y1="20" x2="220" y2="220" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#dc2626"/>
+      <stop offset="50%" stop-color="#991b1b"/>
+      <stop offset="100%" stop-color="#450a0a"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="40" y1="40" x2="200" y2="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fde68a"/>
+      <stop offset="50%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#b45309"/>
+    </linearGradient>
+  </defs>
+  <path d="M120 12 L204 48 L220 132 C220 184 176 216 120 228 C64 216 20 184 20 132 L36 48 Z" fill="url(#rubyGrad)" stroke="url(#goldGrad)" stroke-width="6"/>
+  <circle cx="120" cy="116" r="56" fill="#7f1d1d" fill-opacity="0.5" stroke="url(#goldGrad)" stroke-width="2.5"/>
+  <rect x="86" y="122" width="12" height="26" rx="2" fill="#ffffff" opacity="0.85"/>
+  <rect x="104" y="106" width="12" height="42" rx="2" fill="#ffffff" opacity="0.92"/>
+  <rect x="122" y="90" width="12" height="58" rx="2" fill="url(#goldGrad)"/>
+  <rect x="140" y="74" width="12" height="74" rx="2" fill="#ffffff"/>
+  <path d="M78 118 L110 88 L126 98 L156 66" fill="none" stroke="url(#goldGrad)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <polygon points="120,34 125,45 137,46 128,54 131,66 120,59 109,66 112,54 103,46 115,45" fill="url(#goldGrad)"/>
+</svg>

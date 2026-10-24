@@ -13,9 +13,23 @@ export default defineConfig(() => {
       tailwindcss(),
       {
         name: 'github-pages-helper',
+        transformIndexHtml: {
+          order: 'pre',
+          handler(html) {
+            return html
+              .replace(/<link[^>]*id="gh-raw-css"[^>]*>\s*/g, '')
+              .replace(/<script[^>]*id="gh-raw-js"[^>]*><\/script>\s*/g, '')
+              .replace(
+                '<!-- VITE_DEV_OR_BUILD_ENTRY -->',
+                '<script type="module" src="./src/main.tsx"></script>'
+              );
+          },
+        },
         closeBundle() {
-          const distDir = path.resolve(process.cwd(), 'dist');
-          const docsDir = path.resolve(process.cwd(), 'docs');
+          const rootDir = process.cwd();
+          const distDir = path.resolve(rootDir, 'dist');
+          const docsDir = path.resolve(rootDir, 'docs');
+          const publicDir = path.resolve(rootDir, 'public');
           const indexPath = path.join(distDir, 'index.html');
           const notFoundPath = path.join(distDir, '404.html');
           const noJekyllPath = path.join(distDir, '.nojekyll');
@@ -27,9 +41,41 @@ export default defineConfig(() => {
           // Ensure .nojekyll exists in dist
           fs.writeFileSync(noJekyllPath, '# Disable Jekyll\n');
 
-          // Also mirror dist into docs/ so the user can deploy via GitHub Pages "Deploy from branch -> /docs"
+          // Clean and mirror dist into docs/ so "Deploy from branch -> /docs" and "/ (root)" always have fresh assets
           if (fs.existsSync(distDir)) {
+            fs.rmSync(docsDir, { recursive: true, force: true });
             fs.cpSync(distDir, docsDir, { recursive: true, force: true });
+          }
+
+          // Copy static root icons/.nojekyll so "/ (root)" mode also resolves ./logo.png and .nojekyll
+          for (const file of ['logo.png', 'logo.svg', 'favicon.svg', '.nojekyll']) {
+            const srcFile = path.join(publicDir, file);
+            const destFile = path.join(rootDir, file);
+            if (fs.existsSync(srcFile)) {
+              fs.copyFileSync(srcFile, destFile);
+            }
+          }
+
+          // Update root index.html fallback asset filenames to match the latest build in docs/assets/
+          const rootIndexPath = path.join(rootDir, 'index.html');
+          if (fs.existsSync(indexPath) && fs.existsSync(rootIndexPath)) {
+            const builtHtml = fs.readFileSync(indexPath, 'utf-8');
+            const jsMatch = builtHtml.match(/src="\.\/assets\/(index-[^"]+\.js)"/);
+            const cssMatch = builtHtml.match(/href="\.\/assets\/(index-[^"]+\.css)"/);
+            let rootHtml = fs.readFileSync(rootIndexPath, 'utf-8');
+            if (cssMatch) {
+              rootHtml = rootHtml.replace(
+                /href="\.\/docs\/assets\/index-[^"]+\.css"/,
+                `href="./docs/assets/${cssMatch[1]}"`
+              );
+            }
+            if (jsMatch) {
+              rootHtml = rootHtml.replace(
+                /src="\.\/docs\/assets\/index-[^"]+\.js"/,
+                `src="./docs/assets/${jsMatch[1]}"`
+              );
+            }
+            fs.writeFileSync(rootIndexPath, rootHtml);
           }
         }
       }
