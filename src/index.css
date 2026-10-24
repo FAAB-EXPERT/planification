@@ -1,13 +1,141 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
   body {
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
   }
 
-  /* Monospace and tabular numbers for data grids */
   .tabular-nums {
     font-variant-numeric: tabular-nums;
+  }
+
+  select option {
+    background-color: #ffffff;
+    color: #0f172a;
+  }
+
+  .dark select option {
+    background-color: #0f172a;
+    color: #f8fafc;
+  }
+}
+
+/* Prevent mobile browser auto-zoom when focusing inputs/selects/textareas */
+@media screen and (max-width: 768px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+    touch-action: manipulation;
+  }
+
+  .compact-table input,
+  .compact-table select,
+  .compact-table textarea,
+  .table-compact input,
+  .table-compact select,
+  .table-compact textarea {
+    font-size: 16px !important;
+    zoom: 0.72;
+  }
+}
+
+/* Dedicated compact table & cell sizing for Mobile, Tablet and Desktop */
+.compact-table,
+.table-compact {
+  font-size: 0.72rem;
+  line-height: 1.25;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.compact-table th,
+.table-compact th {
+  padding: 0.4rem 0.45rem;
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.compact-table td,
+.table-compact td {
+  padding: 0.35rem 0.4rem;
+  font-size: 0.68rem;
+  vertical-align: middle;
+}
+
+@media (max-width: 640px) {
+  .compact-table th,
+  .table-compact th {
+    padding: 0.25rem 0.3rem;
+    font-size: 0.58rem;
+  }
+  .compact-table td,
+  .table-compact td {
+    padding: 0.25rem 0.3rem;
+    font-size: 0.63rem;
+  }
+}
+
+/* Bidirectional Scroll Reveal animations (scrolling down AND scrolling up, from left & right) */
+.scroll-reveal-left {
+  opacity: 0;
+  transform: translate3d(-64px, 18px, 0);
+  transition: opacity 0.65s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.scroll-reveal-right {
+  opacity: 0;
+  transform: translate3d(64px, 18px, 0);
+  transition: opacity 0.65s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.scroll-reveal-up {
+  opacity: 0;
+  transform: translate3d(0, 36px, 0);
+  transition: opacity 0.65s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.scroll-reveal-left.is-revealed,
+.scroll-reveal-right.is-revealed,
+.scroll-reveal-up.is-revealed {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+/* A4 Sheet visual presentation */
+.a4-page {
+  width: 100%;
+  max-width: 210mm;
+  min-height: 285mm;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 1.75rem 2rem;
+  background-color: #FFFFFF !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.12), 0 8px 10px -6px rgba(15, 23, 42, 0.08);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+@media (max-width: 640px) {
+  .a4-page {
+    padding: 1rem 1rem;
+    min-height: auto;
   }
 }
 

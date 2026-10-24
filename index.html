@@ -2,26 +2,28 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CNRA Pilotage Stratégique PSD & Suivi des Opérations</title>
-    <meta name="description" content="Plateforme intégrée de gouvernance et pilotage stratégique : cadrage décennal, suivi opérationnel des tâches, analyse des goulots d'étranglement, diagramme de Gantt interactif et tableau Kanban." />
-    <meta property="og:title" content="CNRA Pilotage Stratégique PSD & Suivi des Opérations" />
-    <meta property="og:description" content="Plateforme intégrée de gouvernance et pilotage stratégique : cadrage décennal, suivi opérationnel des tâches, analyse des goulots d'étranglement, diagramme de Gantt interactif et tableau Kanban." />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>FAAB PLAN — Planification Stratégique, Réseau PERT & Suivi des Opérations</title>
+    <meta name="description" content="FAAB PLAN : Plateforme universelle de planification stratégique, ordonnancement PERT/CPM, suivi opérationnel des tâches, diagramme de Gantt et génération de documents institutionnels." />
+    <meta property="og:title" content="FAAB PLAN — Planification Stratégique, Réseau PERT & Suivi des Opérations" />
+    <meta property="og:description" content="FAAB PLAN : Plateforme universelle de planification stratégique, ordonnancement PERT/CPM, suivi opérationnel des tâches, diagramme de Gantt et génération de documents institutionnels." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="icon" type="image/png" href="./logo.png" />
+    <link rel="apple-touch-icon" href="./logo.png" />
     <script>
-      // Fallback: If GitHub Pages serves from repository root (/ (root)) instead of /docs or GitHub Actions:
-      if (window.location.hostname.includes('github.io') && !window.location.pathname.includes('/docs')) {
-        var base = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname + '/';
-        window.location.replace(base + 'docs/' + window.location.search + window.location.hash);
-      }
+      (function() {
+        var p = window.location.pathname;
+        if (p && !p.endsWith('/') && !p.slice(p.lastIndexOf('/')).includes('.')) {
+          window.history.replaceState(null, '', p + '/' + window.location.search + window.location.hash);
+        }
+      })();
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   </head>
-  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-sky-500 selection:text-white">
+  <body class="bg-[#FFFFFF] text-slate-900 antialiased selection:bg-[#90D5FF] selection:text-slate-950">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

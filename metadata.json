@@ -1,6 +1,6 @@
 {
-  "name": "CNRA Pilotage Stratégique PSD & Suivi des Opérations",
-  "description": "Plateforme intégrée de gouvernance et pilotage stratégique : cadrage décennal, suivi opérationnel des tâches, analyse des goulots d'étranglement, diagramme de Gantt interactif et tableau Kanban.",
+  "name": "FAAB PLAN — Pilotage Stratégique, Planification & Suivi des Tâches",
+  "description": "Plateforme universelle de planification stratégique, ordonnancement PERT/CPM, diagramme de Gantt, suivi opérationnel des tâches, Kanban et générateur de documents aux normes internationales.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
