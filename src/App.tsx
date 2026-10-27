@@ -33,8 +33,12 @@ import {
   Calendar,
   ListChecks,
   FileSpreadsheet,
+  FileUp,
+  FileDown,
   Save,
-  Users
+  Users,
+  Globe,
+  QrCode
 } from 'lucide-react';
 import {
   CurrencyCode,
@@ -47,17 +51,26 @@ import {
   Task,
   CustomDocsMap,
   CustomDocFields,
-  InstitutionalDocType
+  InstitutionalDocType,
+  CategorizedActor
 } from './types';
 import {
   defaultUserProfile,
   defaultCustomDocsData,
   initialDossiers,
   loadAppStateFromIDB,
-  saveAppStateToIDB
+  saveAppStateToIDB,
+  ensureDossierCategorizedActors,
+  renameActorInDossierTasks
 } from './db';
 import { translations, formatCurrency } from './i18n';
 import { generateDirectWhitePDF } from './pdfExport';
+import {
+  saveProgramFile,
+  initExportStorage,
+  pickFaabPlanFolder,
+  downloadProgramFolderZip
+} from './services/exportStorage';
 import {
   STANDARD_PHASES,
   getTodayISO,
@@ -75,6 +88,20 @@ import {
   UserProfileView,
   DossiersAndProjectsView
 } from './components/UserProfileAndDossiersView';
+import { CategoriesActorsView } from './components/CategoriesActorsView';
+import { QrBarcodeScannerModal } from './components/QrBarcodeScannerModal';
+import { InternalActorProfileModal } from './components/InternalActorProfileModal';
+import { resolveProgramRaciContext } from './docMatrices';
+import {
+  auth,
+  googleProvider,
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged,
+  FirebaseUser
+} from './firebase';
+import { AuthStatusButton } from './components/AuthStatusButton';
+import { FirebaseAuthHelpModal } from './components/FirebaseAuthHelpModal';
 
 export function App() {
   const [isHydrated, setIsHydrated] = useState(false);
@@ -93,10 +120,23 @@ export function App() {
   const [customDocsData, setCustomDocsData] =
     useState<CustomDocsMap>(defaultCustomDocsData);
 
+  // Firebase Authentication States
+  const [authUser, setAuthUser] = useState<FirebaseUser | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
+  const [isAuthHelpModalOpen, setIsAuthHelpModalOpen] = useState<boolean>(false);
+  const [authErrorCode, setAuthErrorCode] = useState<string>('auth/unauthorized-domain');
+  const [authErrorMessage, setAuthErrorMessage] = useState<string>('');
+
   // Slidebar & UI states
   const [isSlidebarOpen, setIsSlidebarOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isGlobalScannerOpen, setIsGlobalScannerOpen] = useState(false);
+  const [isCategoryProfileModalOpen, setIsCategoryProfileModalOpen] = useState(false);
+  const [selectedCategoryActorName, setSelectedCategoryActorName] = useState<string>(
+    defaultUserProfile.fullName
+  );
 
   // Filters
   const [filterAxeId, setFilterAxeId] = useState<string>('ALL');
@@ -107,7 +147,96 @@ export function App() {
   const [pertViewMode, setPertViewMode] = useState<'graph' | 'table'>('graph');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const csvPlanInputRef = useRef<HTMLInputElement>(null);
+  const csvRaciInputRef = useRef<HTMLInputElement>(null);
   const fileHandleRef = useRef<any>(null);
+  const [csvMenuOpen, setCsvMenuOpen] = useState<
+    'slidebar-import' | 'slidebar-export' | 'header-import' | 'header-export' | null
+  >(null);
+
+  // Homepage section scroll-spy & horizontal centering in navbar
+  const [activeHomeSection, setActiveHomeSection] = useState<string>(
+    'section-presentation'
+  );
+  const homeNavScrollRef = useRef<HTMLDivElement>(null);
+  const homeNavBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  useEffect(() => {
+    if (activeTab !== 'accueil') return;
+
+    const sectionIds = [
+      'section-presentation',
+      'section-utilisation',
+      'section-documents',
+      'section-cibles',
+      'section-offres',
+      'section-methodologie',
+      'section-sauvegarde',
+      'section-credits'
+    ];
+
+    const detectActiveSection = () => {
+      const scrollY = window.scrollY || window.pageYOffset;
+      const viewportHeight = window.innerHeight;
+      const docHeight = document.documentElement.scrollHeight;
+
+      if (scrollY < 50) {
+        setActiveHomeSection('section-presentation');
+        return;
+      }
+
+      if (scrollY + viewportHeight >= docHeight - 40) {
+        setActiveHomeSection('section-credits');
+        return;
+      }
+
+      const readingLine = Math.min(200, viewportHeight * 0.28);
+      let currentId = sectionIds[0];
+
+      for (const id of sectionIds) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.top <= readingLine) {
+          currentId = id;
+        }
+      }
+
+      setActiveHomeSection(currentId);
+    };
+
+    detectActiveSection();
+    window.addEventListener('scroll', detectActiveSection, { passive: true });
+    window.addEventListener('resize', detectActiveSection, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', detectActiveSection);
+      window.removeEventListener('resize', detectActiveSection);
+    };
+  }, [activeTab]);
+
+  // Horizontally center the active section title in the navbar whenever activeHomeSection changes
+  useEffect(() => {
+    if (activeTab !== 'accueil') return;
+    const navContainer = homeNavScrollRef.current;
+    const activeBtn = homeNavBtnRefs.current[activeHomeSection];
+    if (!navContainer || !activeBtn) return;
+
+    const centerActiveButton = () => {
+      const navRect = navContainer.getBoundingClientRect();
+      const btnRect = activeBtn.getBoundingClientRect();
+      const currentScrollLeft = navContainer.scrollLeft;
+      const btnCenterInScroll =
+        btnRect.left - navRect.left + currentScrollLeft + btnRect.width / 2;
+      const targetScrollLeft = btnCenterInScroll - navContainer.clientWidth / 2;
+      navContainer.scrollTo({
+        left: Math.max(0, targetScrollLeft),
+        behavior: 'smooth'
+      });
+    };
+
+    const rafId = requestAnimationFrame(centerActiveButton);
+    return () => cancelAnimationFrame(rafId);
+  }, [activeHomeSection, activeTab, language]);
 
   // Hydrate from IndexedDB on mount
   useEffect(() => {
@@ -132,6 +261,7 @@ export function App() {
       }
       setIsHydrated(true);
     });
+    initExportStorage();
   }, []);
 
   // Auto-persist to IndexedDB & sync dark mode
@@ -153,6 +283,7 @@ export function App() {
     } else {
       document.documentElement.classList.remove('dark');
     }
+    document.documentElement.lang = language === 'EN' ? 'en' : 'fr';
   }, [
     isHydrated,
     userProfile,
@@ -169,6 +300,116 @@ export function App() {
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  // Firebase Auth State Listener (Strictly driven by Firebase SDK)
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, user => {
+      if (user) {
+        setAuthUser({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName,
+          photoURL: user.photoURL
+        });
+        try {
+          localStorage.setItem(
+            'faab_auth_session',
+            JSON.stringify({
+              uid: user.uid,
+              email: user.email,
+              displayName: user.displayName,
+              photoURL: user.photoURL
+            })
+          );
+        } catch {}
+      } else {
+        setAuthUser(null);
+        try {
+          localStorage.removeItem('faab_auth_session');
+        } catch {}
+      }
+      setIsAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleGoogleSignIn = async () => {
+    try {
+      setIsSigningIn(true);
+      // Strictly call the real Firebase Google Sign-In Popup
+      const res = await signInWithPopup(auth, googleProvider);
+      if (res.user) {
+        setAuthUser({
+          uid: res.user.uid,
+          email: res.user.email,
+          displayName: res.user.displayName,
+          photoURL: res.user.photoURL
+        });
+        try {
+          localStorage.setItem(
+            'faab_auth_session',
+            JSON.stringify({
+              uid: res.user.uid,
+              email: res.user.email,
+              displayName: res.user.displayName,
+              photoURL: res.user.photoURL
+            })
+          );
+        } catch {}
+        showToast(
+          language === 'EN'
+            ? `Welcome ${res.user.displayName || res.user.email}!`
+            : `Bienvenue ${res.user.displayName || res.user.email} !`
+        );
+        setActiveTab(prev => (prev === 'accueil' ? 'projects' : prev));
+      }
+    } catch (err: any) {
+      const code = err?.code || 'auth/unknown-error';
+      const msg = err?.message || 'Erreur lors de la connexion Google Firebase.';
+
+      // Strictly DO NOT unlock the app. Keep authUser null.
+      // Display diagnostic modal with exact error code & current domain for 1-click copy into Firebase Console.
+      setAuthErrorCode(code);
+      setAuthErrorMessage(msg);
+
+      if (
+        code === 'auth/unauthorized-domain' ||
+        code === 'auth/popup-blocked' ||
+        code.includes('unauthorized-domain') ||
+        code.includes('popup-blocked')
+      ) {
+        setIsAuthHelpModalOpen(true);
+      } else if (
+        code !== 'auth/popup-closed-by-user' &&
+        code !== 'auth/cancelled-popup-request'
+      ) {
+        console.warn('Firebase Google Sign-In notice:', code, msg);
+        setIsAuthHelpModalOpen(true);
+      }
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.warn('Sign Out notice:', err);
+    } finally {
+      try {
+        localStorage.removeItem('faab_auth_session');
+      } catch {}
+      setAuthUser(null);
+      setIsSlidebarOpen(false);
+      setActiveTab('accueil');
+      showToast(
+        language === 'EN'
+          ? 'You have been logged out.'
+          : 'Vous avez été déconnecté.'
+      );
+    }
   };
 
   const activeDossier = useMemo<Dossier>(() => {
@@ -289,87 +530,104 @@ export function App() {
       ? Math.round((statusCounts.Terminé / allDossierTasks.length) * 100)
       : 0;
 
-  if (!isHydrated) {
+  const activeRaciContext = useMemo(
+    () => resolveProgramRaciContext(activeDossier, userProfile),
+    [activeDossier, userProfile]
+  );
+
+  if (!isHydrated || isAuthLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
-        <div className="flex flex-col items-center gap-3">
-          <AppLogo className="w-24 h-24 animate-pulse" />
-          <p className="text-xs font-bold tracking-widest uppercase text-[#90D5FF]">
-            Hydratation IndexedDB FAAB PLAN en cours...
-          </p>
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white p-6">
+        <div className="flex flex-col items-center gap-5">
+          <div className="bg-white p-4 sm:p-5 rounded-3xl border-4 border-[#90D5FF] shadow-2xl flex items-center justify-center">
+            <AppLogo className="w-44 h-44 sm:w-56 sm:h-56 animate-pulse" />
+          </div>
+          <div className="flex items-center gap-2.5 text-xs sm:text-sm font-extrabold tracking-widest uppercase text-[#90D5FF] text-center">
+            <div className="w-4 h-4 border-2 border-[#90D5FF] border-t-transparent rounded-full animate-spin" />
+            <span>
+              {!isHydrated
+                ? 'Hydratation IndexedDB FAAB PLAN en cours...'
+                : language === 'EN'
+                ? 'Verifying secure session...'
+                : 'Vérification de la session sécurisée...'}
+            </span>
+          </div>
         </div>
       </div>
     );
   }
 
   const navigateTo = (tab: string) => {
+    if (!authUser && tab !== 'accueil') {
+      handleGoogleSignIn();
+      return;
+    }
     setActiveTab(tab);
     setIsSlidebarOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // JSON Save / Overwrite or Export
+  // JSON Save / Overwrite or Export (uniquely for the selected programme)
   const handleSaveOrExportJSON = async () => {
+    const safeProgSlug = (activeDossier.name || 'programme')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 40);
+
+    const activeDossierDocsData: CustomDocsMap = {
+      ...defaultCustomDocsData,
+      ...(activeDossier.customDocsData || {})
+    };
+
     const payload = {
+      programmeSelectionne: {
+        ...activeDossier,
+        customDocsData: activeDossierDocsData
+      },
+      dossiers: [
+        {
+          ...activeDossier,
+          customDocsData: activeDossierDocsData
+        }
+      ],
+      activeDossierId: activeDossier.id,
       userProfile,
-      dossiers,
-      activeDossierId,
       language,
       currency,
       theme,
       lastJsonFileName,
       activeTab,
-      customDocsData
+      customDocsData: activeDossierDocsData
     };
     const jsonString = JSON.stringify(payload, null, 2);
 
-    try {
-      if (fileHandleRef.current) {
-        const writable = await fileHandleRef.current.createWritable();
-        await writable.write(jsonString);
-        await writable.close();
-        showToast(`Fichier JSON mis à jour directement : ${lastJsonFileName}`);
-        return;
-      }
-      if ('showSaveFilePicker' in window) {
-        const handle = await (window as any).showSaveFilePicker({
-          suggestedName: lastJsonFileName || 'faab_plan_sauvegarde.json',
-          types: [
-            {
-              description: 'Fichier JSON FAAB PLAN',
-              accept: { 'application/json': ['.json'] }
-            }
-          ]
-        });
-        fileHandleRef.current = handle;
-        const writable = await handle.createWritable();
-        await writable.write(jsonString);
-        await writable.close();
-        setLastJsonFileName(handle.name);
-        showToast(`Sauvegardé dans : ${handle.name}`);
-        return;
-      }
-    } catch {
-      // Fallback to standard download if inside iframe or user cancels picker
-    }
+    const filename = `FAAB_PLAN_${safeProgSlug.toUpperCase() || 'PROGRAMME'}.json`;
 
-    const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const filename =
-      lastJsonFileName ||
-      `FAAB-PLAN-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(
-        now.getDate()
-      )}.json`;
+    const res = await saveProgramFile({
+      programName: activeDossier.name,
+      fileName: filename,
+      content: jsonString,
+      mimeType: 'application/json'
+    });
 
-    const blob = new Blob([jsonString], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
     setLastJsonFileName(filename);
-    showToast(`Sauvegarde JSON téléchargée : ${filename}`);
+    if (res.mode === 'directory' || res.mode === 'savepicker') {
+      showToast(
+        language === 'EN'
+          ? `Programme "${activeDossier.name}" saved & overwritten in: ${res.path}`
+          : `Programme "${activeDossier.name}" enregistré et écrasé dans : ${res.path}`
+      );
+    } else {
+      showToast(
+        res.warning ||
+          (language === 'EN'
+            ? `Programme "${activeDossier.name}" exported (${filename} -> ${res.path})`
+            : `Programme "${activeDossier.name}" exporté (${filename} -> dossier : ${res.path})`)
+      );
+    }
   };
 
   // JSON Import
@@ -380,9 +638,30 @@ export function App() {
     reader.onload = evt => {
       try {
         const parsed = JSON.parse(evt.target?.result as string);
-        if (parsed && Array.isArray(parsed.dossiers)) {
-          setDossiers(parsed.dossiers);
-          if (parsed.activeDossierId) setActiveDossierId(parsed.activeDossierId);
+        const importedDossiers: Dossier[] | null = Array.isArray(parsed?.dossiers)
+          ? parsed.dossiers
+          : parsed?.programmeSelectionne
+          ? [parsed.programmeSelectionne]
+          : null;
+
+        if (importedDossiers && importedDossiers.length > 0) {
+          if (importedDossiers.length === 1) {
+            const singleProg = importedDossiers[0];
+            setDossiers(prev => {
+              const exists = prev.some(d => d.id === singleProg.id);
+              return exists
+                ? prev.map(d => (d.id === singleProg.id ? singleProg : d))
+                : [...prev, singleProg];
+            });
+            setActiveDossierId(singleProg.id);
+          } else {
+            setDossiers(importedDossiers);
+            if (parsed.activeDossierId) {
+              setActiveDossierId(parsed.activeDossierId);
+            } else {
+              setActiveDossierId(importedDossiers[0].id);
+            }
+          }
           if (parsed.userProfile) setUserProfile(parsed.userProfile);
           if (parsed.currency) setCurrency(parsed.currency);
           if (parsed.language) setLanguage(parsed.language);
@@ -393,7 +672,7 @@ export function App() {
             });
           }
           setLastJsonFileName(file.name);
-          showToast(`Portefeuille restauré depuis : ${file.name}`);
+          showToast(`Programme restauré depuis : ${file.name}`);
         } else {
           showToast('Fichier JSON non reconnu.');
         }
@@ -410,6 +689,698 @@ export function App() {
     setDossiers(prev =>
       prev.map(d => (d.id === activeDossier.id ? updater(d) : d))
     );
+  };
+
+  // CSV Round-Trip Helpers (UTF-8 with BOM \uFEFF + semicolon separator for Excel)
+  const escapeCsvCell = (val: unknown): string => {
+    const str = String(val ?? '').replace(/\r?\n/g, ' ').trim();
+    if (str.includes(';') || str.includes('"') || str.includes(',')) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
+  const parseCsvText = (rawText: string): Array<Record<string, string>> => {
+    const cleanText = rawText.replace(/^\uFEFF/, '').trim();
+    if (!cleanText) return [];
+
+    const lines: string[] = [];
+    let currentLine = '';
+    let inQuotes = false;
+    for (let i = 0; i < cleanText.length; i++) {
+      const ch = cleanText[i];
+      if (ch === '"') {
+        if (inQuotes && cleanText[i + 1] === '"') {
+          currentLine += '""';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+          currentLine += ch;
+        }
+      } else if ((ch === '\n' || ch === '\r') && !inQuotes) {
+        if (ch === '\r' && cleanText[i + 1] === '\n') i++;
+        if (currentLine.trim().length > 0) lines.push(currentLine);
+        currentLine = '';
+      } else {
+        currentLine += ch;
+      }
+    }
+    if (currentLine.trim().length > 0) lines.push(currentLine);
+    if (lines.length < 2) return [];
+
+    const headerLine = lines[0];
+    const semiCount = (headerLine.match(/;/g) || []).length;
+    const commaCount = (headerLine.match(/,/g) || []).length;
+    const delimiter = semiCount >= commaCount ? ';' : ',';
+
+    const splitRow = (rowStr: string): string[] => {
+      const cells: string[] = [];
+      let cur = '';
+      let quoted = false;
+      for (let i = 0; i < rowStr.length; i++) {
+        const c = rowStr[i];
+        if (c === '"') {
+          if (quoted && rowStr[i + 1] === '"') {
+            cur += '"';
+            i++;
+          } else {
+            quoted = !quoted;
+          }
+        } else if (c === delimiter && !quoted) {
+          cells.push(cur.trim());
+          cur = '';
+        } else {
+          cur += c;
+        }
+      }
+      cells.push(cur.trim());
+      return cells;
+    };
+
+    const normalizeKey = (k: string) =>
+      k
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9_]/g, '');
+
+    const rawHeaders = splitRow(lines[0]).map(normalizeKey);
+    const records: Array<Record<string, string>> = [];
+
+    for (let r = 1; r < lines.length; r++) {
+      const vals = splitRow(lines[r]);
+      if (vals.every(v => !v)) continue;
+      const rec: Record<string, string> = {};
+      rawHeaders.forEach((h, idx) => {
+        if (h) rec[h] = vals[idx] ?? '';
+      });
+      records.push(rec);
+    }
+    return records;
+  };
+
+  const triggerCsvDownload = (filename: string, csvLines: string[]) => {
+    const bom = '\uFEFF';
+    const content = bom + csvLines.join('\r\n');
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPlanificationCSV = async () => {
+    const headers = [
+      'TaskID',
+      'Code',
+      'AxeID',
+      'Axe',
+      'ProjectID',
+      'Projet',
+      'Phase',
+      'Type',
+      'Activite',
+      'Antecedent',
+      'DateDebutPrevue',
+      'DateFinPrevue',
+      'Budget',
+      'Statut',
+      'DateDebutReelle',
+      'DateFinReelle',
+      'Livrable'
+    ];
+    const rows: string[] = [headers.join(';')];
+
+    (activeDossier.axes || []).forEach(axe => {
+      (axe.projects || []).forEach(proj => {
+        const rawTasks = proj.tasks || [];
+        const codeMap = new Map<string, string>();
+        STANDARD_PHASES.forEach((pName, pIdx) => {
+          rawTasks
+            .filter(tk => tk.phase === pName)
+            .forEach((tk, tIdx) => {
+              codeMap.set(
+                tk.id,
+                `${tk.type === 'jalon' ? 'J' : 'T'}.${pIdx + 1}.${tIdx + 1}`
+              );
+            });
+        });
+
+        rawTasks.forEach((tk, idx) => {
+          const code =
+            codeMap.get(tk.id) ||
+            `${tk.type === 'jalon' ? 'J' : 'T'}.1.${idx + 1}`;
+          rows.push(
+            [
+              tk.id,
+              code,
+              axe.id,
+              axe.name,
+              proj.id,
+              proj.name,
+              tk.phase || 'PLANIFICATION',
+              tk.type || 'tache',
+              tk.name || '',
+              tk.antecedent || '—',
+              tk.startDate || todayISO,
+              tk.endDate || todayISO,
+              Number(tk.budget) || 0,
+              tk.status || 'À faire',
+              tk.actualStartDate || '',
+              tk.actualEndDate || '',
+              tk.livrable || ''
+            ]
+              .map(escapeCsvCell)
+              .join(';')
+          );
+        });
+      });
+    });
+
+    const safeSlug = (activeDossier.name || 'programme')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .slice(0, 30);
+    const filename = `FAAB_PLAN_Planification_${safeSlug}.csv`;
+    const bom = '\uFEFF';
+    const csvContent = bom + rows.join('\r\n');
+
+    const res = await saveProgramFile({
+      programName: activeDossier.name,
+      fileName: filename,
+      content: csvContent,
+      mimeType: 'text/csv;charset=utf-8;'
+    });
+
+    setCsvMenuOpen(null);
+    if (res.mode === 'directory' || res.mode === 'savepicker') {
+      showToast(
+        language === 'EN'
+          ? `Planning CSV saved & overwritten in: ${res.path}`
+          : `Planification CSV enregistrée et écrasée dans : ${res.path}`
+      );
+    } else {
+      showToast(
+        res.warning ||
+          (language === 'EN'
+            ? `Planning CSV exported: ${filename} (target: ${res.path})`
+            : `Planification exportée en CSV : ${filename} (dossier : ${res.path})`)
+      );
+    }
+  };
+
+  const handleExportRaciCSV = async () => {
+    const headers = [
+      'TaskID',
+      'Code',
+      'AxeID',
+      'Axe',
+      'ProjectID',
+      'Projet',
+      'Phase',
+      'Activite',
+      'R_Responsable',
+      'A_Autorite',
+      'C_Consulte',
+      'I_Informe',
+      'Livrable',
+      'Statut'
+    ];
+    const rows: string[] = [headers.join(';')];
+
+    (activeDossier.axes || []).forEach(axe => {
+      (axe.projects || []).forEach(proj => {
+        const rawTasks = proj.tasks || [];
+        const codeMap = new Map<string, string>();
+        STANDARD_PHASES.forEach((pName, pIdx) => {
+          rawTasks
+            .filter(tk => tk.phase === pName)
+            .forEach((tk, tIdx) => {
+              codeMap.set(
+                tk.id,
+                `${tk.type === 'jalon' ? 'J' : 'T'}.${pIdx + 1}.${tIdx + 1}`
+              );
+            });
+        });
+
+        rawTasks.forEach((tk, idx) => {
+          const code =
+            codeMap.get(tk.id) ||
+            `${tk.type === 'jalon' ? 'J' : 'T'}.1.${idx + 1}`;
+          rows.push(
+            [
+              tk.id,
+              code,
+              axe.id,
+              axe.name,
+              proj.id,
+              proj.name,
+              tk.phase || 'PLANIFICATION',
+              tk.name || '',
+              tk.assignee || tk.raciR || tk.responsabilite || '',
+              tk.autorite || tk.raciA || '',
+              tk.consulte || tk.raciC || '',
+              tk.informe || tk.raciI || '',
+              tk.livrable || '',
+              tk.status || 'À faire'
+            ]
+              .map(escapeCsvCell)
+              .join(';')
+          );
+        });
+      });
+    });
+
+    const safeSlug = (activeDossier.name || 'programme')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .slice(0, 30);
+    const filename = `FAAB_PLAN_Matrice_RACI_${safeSlug}.csv`;
+    const bom = '\uFEFF';
+    const csvContent = bom + rows.join('\r\n');
+
+    const res = await saveProgramFile({
+      programName: activeDossier.name,
+      fileName: filename,
+      content: csvContent,
+      mimeType: 'text/csv;charset=utf-8;'
+    });
+
+    setCsvMenuOpen(null);
+    if (res.mode === 'directory' || res.mode === 'savepicker') {
+      showToast(
+        language === 'EN'
+          ? `RACI Matrix CSV saved & overwritten in: ${res.path}`
+          : `Matrice RACI CSV enregistrée et écrasée dans : ${res.path}`
+      );
+    } else {
+      showToast(
+        res.warning ||
+          (language === 'EN'
+            ? `RACI Matrix exported: ${filename} (target: ${res.path})`
+            : `Matrice RACI exportée en CSV : ${filename} (dossier : ${res.path})`)
+      );
+    }
+  };
+
+  const handleImportPlanificationCSV = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = evt => {
+      try {
+        const records = parseCsvText(String(evt.target?.result || ''));
+        if (records.length === 0) {
+          showToast('Fichier CSV vide ou format non valide.');
+          return;
+        }
+
+        let updatedCount = 0;
+        let createdCount = 0;
+
+        updateActiveDossier(d => {
+          const nextAxes: Axe[] = (d.axes || []).map(a => ({
+            ...a,
+            projects: (a.projects || []).map(p => ({
+              ...p,
+              tasks: [...(p.tasks || [])]
+            }))
+          }));
+
+          records.forEach((rec, idx) => {
+            const taskId = rec.taskid || rec.id || '';
+            const axeId = rec.axeid || '';
+            const axeName = rec.axe || '';
+            const projId = rec.projectid || rec.projetid || '';
+            const projName = rec.projet || rec.project || '';
+            const actName =
+              rec.activite || rec.tache || rec.name || rec.intitule || '';
+            if (!actName && !taskId) return;
+
+            const rawPhase = (rec.phase || '').toUpperCase().trim();
+            const validPhase = STANDARD_PHASES.includes(rawPhase as any)
+              ? rawPhase
+              : STANDARD_PHASES.find(p =>
+                  rawPhase.includes(p.slice(0, 6))
+                ) || 'PLANIFICATION';
+
+            const rawType = (rec.type || '').toLowerCase().trim();
+            const validType: 'tache' | 'jalon' =
+              rawType === 'jalon' || rawType === 'j' ? 'jalon' : 'tache';
+
+            const rawStatus = (rec.statut || rec.status || '').trim();
+            const validStatus: Task['status'] =
+              rawStatus === 'Terminé' ||
+              rawStatus === 'En cours' ||
+              rawStatus === 'Bloqué' ||
+              rawStatus === 'À faire'
+                ? rawStatus
+                : 'À faire';
+
+            const cleanBudget =
+              Number(
+                String(rec.budget || '0')
+                  .replace(/\s/g, '')
+                  .replace(',', '.')
+                  .replace(/[^0-9.-]/g, '')
+              ) || 0;
+
+            // 1. Try finding existing task by ID or by Project+Name
+            let matchedTask: Task | undefined;
+            for (const ax of nextAxes) {
+              for (const pr of ax.projects || []) {
+                const found = (pr.tasks || []).find(
+                  tk =>
+                    (taskId && tk.id === taskId) ||
+                    (!taskId &&
+                      actName &&
+                      tk.name.trim().toLowerCase() ===
+                        actName.trim().toLowerCase() &&
+                      (!projName ||
+                        pr.name.trim().toLowerCase() ===
+                          projName.trim().toLowerCase()))
+                );
+                if (found) {
+                  matchedTask = found;
+                  break;
+                }
+              }
+              if (matchedTask) break;
+            }
+
+            if (matchedTask) {
+              if (actName) matchedTask.name = actName;
+              if (rec.phase) matchedTask.phase = validPhase;
+              if (rec.type) matchedTask.type = validType;
+              if (rec.antecedent !== undefined && rec.antecedent !== '') {
+                matchedTask.antecedent = rec.antecedent;
+              }
+              if (rec.datedebutprevue || rec.startdate) {
+                matchedTask.startDate = rec.datedebutprevue || rec.startdate;
+              }
+              if (rec.datefinprevue || rec.enddate) {
+                matchedTask.endDate = rec.datefinprevue || rec.enddate;
+              }
+              if (rec.budget !== undefined && rec.budget !== '') {
+                matchedTask.budget = cleanBudget;
+              }
+              if (rec.statut || rec.status) {
+                matchedTask.status = validStatus;
+              }
+              if (rec.datedebutreelle !== undefined) {
+                matchedTask.actualStartDate = rec.datedebutreelle;
+              }
+              if (rec.datefinreelle !== undefined) {
+                matchedTask.actualEndDate = rec.datefinreelle;
+              }
+              if (rec.livrable !== undefined) {
+                matchedTask.livrable = rec.livrable;
+              }
+              updatedCount++;
+            } else {
+              // Find or create target Axe & Project
+              let targetAxe =
+                nextAxes.find(
+                  a =>
+                    (axeId && a.id === axeId) ||
+                    (axeName &&
+                      a.name.trim().toLowerCase() ===
+                        axeName.trim().toLowerCase())
+                ) || nextAxes[0];
+
+              if (!targetAxe) {
+                targetAxe = {
+                  id: axeId || `axe-csv-${Date.now()}`,
+                  name: axeName || 'Axe 1 : Axe Importé CSV',
+                  projects: []
+                };
+                nextAxes.push(targetAxe);
+              }
+
+              let targetProj =
+                (targetAxe.projects || []).find(
+                  p =>
+                    (projId && p.id === projId) ||
+                    (projName &&
+                      p.name.trim().toLowerCase() ===
+                        projName.trim().toLowerCase())
+                ) || (targetAxe.projects || [])[0];
+
+              if (!targetProj) {
+                targetProj = {
+                  id: projId || `proj-csv-${Date.now()}-${idx}`,
+                  name: projName || 'Projet Importé CSV',
+                  tasks: []
+                };
+                targetAxe.projects = [...(targetAxe.projects || []), targetProj];
+              }
+
+              const newTk: Task = {
+                id: taskId || `tk-csv-${Date.now()}-${idx}`,
+                type: validType,
+                phase: validPhase,
+                name: actName || `Activité CSV ${idx + 1}`,
+                startDate: rec.datedebutprevue || rec.startdate || todayISO,
+                endDate: rec.datefinprevue || rec.enddate || todayISO,
+                actualStartDate: rec.datedebutreelle || '',
+                actualEndDate: rec.datefinreelle || '',
+                status: validStatus,
+                assignee: rec.r_responsable || rec.responsable || '',
+                autorite: rec.a_autorite || rec.autorite || '',
+                consulte: rec.c_consulte || rec.consulte || '',
+                informe: rec.i_informe || rec.informe || '',
+                livrable: rec.livrable || '',
+                budget: cleanBudget,
+                antecedent: rec.antecedent || '—'
+              };
+              targetProj.tasks = [...(targetProj.tasks || []), newTk];
+              createdCount++;
+            }
+          });
+
+          const nextDossier: Dossier = { ...d, axes: nextAxes };
+          return {
+            ...nextDossier,
+            categorizedActors: ensureDossierCategorizedActors(nextDossier)
+          };
+        });
+
+        showToast(
+          `CSV Planification importé (${updatedCount} mis à jour, ${createdCount} ajouté(s)).`
+        );
+      } catch {
+        showToast("Erreur lors de l'importation du CSV Planification.");
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+    e.target.value = '';
+    setCsvMenuOpen(null);
+  };
+
+  const handleImportRaciCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = evt => {
+      try {
+        const records = parseCsvText(String(evt.target?.result || ''));
+        if (records.length === 0) {
+          showToast('Fichier CSV RACI vide ou format non valide.');
+          return;
+        }
+
+        let updatedCount = 0;
+        let createdCount = 0;
+
+        updateActiveDossier(d => {
+          const nextAxes: Axe[] = (d.axes || []).map(a => ({
+            ...a,
+            projects: (a.projects || []).map(p => ({
+              ...p,
+              tasks: [...(p.tasks || [])]
+            }))
+          }));
+
+          records.forEach((rec, idx) => {
+            const taskId = rec.taskid || rec.id || '';
+            const axeId = rec.axeid || '';
+            const axeName = rec.axe || '';
+            const projId = rec.projectid || rec.projetid || '';
+            const projName = rec.projet || rec.project || '';
+            const actName =
+              rec.activite || rec.tache || rec.name || rec.intitule || '';
+            if (!actName && !taskId) return;
+
+            const rVal =
+              rec.r_responsable ??
+              rec.rresponsable ??
+              rec.responsable ??
+              rec.r ??
+              undefined;
+            const aVal =
+              rec.a_autorite ??
+              rec.aautorite ??
+              rec.autorite ??
+              rec.a ??
+              undefined;
+            const cVal =
+              rec.c_consulte ??
+              rec.cconsulte ??
+              rec.consulte ??
+              rec.c ??
+              undefined;
+            const iVal =
+              rec.i_informe ??
+              rec.iinforme ??
+              rec.informe ??
+              rec.i ??
+              undefined;
+
+            let matchedTask: Task | undefined;
+            for (const ax of nextAxes) {
+              for (const pr of ax.projects || []) {
+                const found = (pr.tasks || []).find(
+                  tk =>
+                    (taskId && tk.id === taskId) ||
+                    (!taskId &&
+                      actName &&
+                      tk.name.trim().toLowerCase() ===
+                        actName.trim().toLowerCase() &&
+                      (!projName ||
+                        pr.name.trim().toLowerCase() ===
+                          projName.trim().toLowerCase()))
+                );
+                if (found) {
+                  matchedTask = found;
+                  break;
+                }
+              }
+              if (matchedTask) break;
+            }
+
+            if (matchedTask) {
+              if (actName) matchedTask.name = actName;
+              if (rVal !== undefined) {
+                matchedTask.assignee = rVal;
+                matchedTask.raciR = rVal;
+                matchedTask.responsabilite = rVal;
+              }
+              if (aVal !== undefined) {
+                matchedTask.autorite = aVal;
+                matchedTask.raciA = aVal;
+              }
+              if (cVal !== undefined) {
+                matchedTask.consulte = cVal;
+                matchedTask.raciC = cVal;
+              }
+              if (iVal !== undefined) {
+                matchedTask.informe = iVal;
+                matchedTask.raciI = iVal;
+              }
+              if (rec.livrable !== undefined) {
+                matchedTask.livrable = rec.livrable;
+              }
+              if (rec.statut || rec.status) {
+                const st = (rec.statut || rec.status).trim();
+                if (
+                  st === 'Terminé' ||
+                  st === 'En cours' ||
+                  st === 'Bloqué' ||
+                  st === 'À faire'
+                ) {
+                  matchedTask.status = st;
+                }
+              }
+              updatedCount++;
+            } else {
+              let targetAxe =
+                nextAxes.find(
+                  a =>
+                    (axeId && a.id === axeId) ||
+                    (axeName &&
+                      a.name.trim().toLowerCase() ===
+                        axeName.trim().toLowerCase())
+                ) || nextAxes[0];
+
+              if (!targetAxe) {
+                targetAxe = {
+                  id: axeId || `axe-raci-${Date.now()}`,
+                  name: axeName || 'Axe 1 : Axe Importé RACI',
+                  projects: []
+                };
+                nextAxes.push(targetAxe);
+              }
+
+              let targetProj =
+                (targetAxe.projects || []).find(
+                  p =>
+                    (projId && p.id === projId) ||
+                    (projName &&
+                      p.name.trim().toLowerCase() ===
+                        projName.trim().toLowerCase())
+                ) || (targetAxe.projects || [])[0];
+
+              if (!targetProj) {
+                targetProj = {
+                  id: projId || `proj-raci-${Date.now()}-${idx}`,
+                  name: projName || 'Projet Importé RACI',
+                  tasks: []
+                };
+                targetAxe.projects = [...(targetAxe.projects || []), targetProj];
+              }
+
+              const rawPhase = (rec.phase || '').toUpperCase().trim();
+              const validPhase = STANDARD_PHASES.includes(rawPhase as any)
+                ? rawPhase
+                : 'PLANIFICATION';
+
+              const newTk: Task = {
+                id: taskId || `tk-raci-${Date.now()}-${idx}`,
+                type: 'tache',
+                phase: validPhase,
+                name: actName || `Activité RACI ${idx + 1}`,
+                startDate: todayISO,
+                endDate: todayISO,
+                status: 'À faire',
+                assignee: rVal || '',
+                raciR: rVal || '',
+                responsabilite: rVal || '',
+                autorite: aVal || '',
+                raciA: aVal || '',
+                consulte: cVal || '',
+                raciC: cVal || '',
+                informe: iVal || '',
+                raciI: iVal || '',
+                livrable: rec.livrable || '',
+                budget: 0,
+                antecedent: '—'
+              };
+              targetProj.tasks = [...(targetProj.tasks || []), newTk];
+              createdCount++;
+            }
+          });
+
+          const nextDossier: Dossier = { ...d, axes: nextAxes };
+          return {
+            ...nextDossier,
+            categorizedActors: ensureDossierCategorizedActors(nextDossier)
+          };
+        });
+
+        showToast(
+          `CSV Matrice RACI importé (${updatedCount} mis à jour, ${createdCount} ajouté(s)).`
+        );
+      } catch {
+        showToast("Erreur lors de l'importation du CSV RACI.");
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+    e.target.value = '';
+    setCsvMenuOpen(null);
   };
 
   const createDossierDirect = (
@@ -464,6 +1435,16 @@ export function App() {
     setFilterAxeId('ALL');
     setFilterProjectId('ALL');
     showToast(`Nouveau dossier "${newDossier.name}" créé et activé.`);
+  };
+
+  const handleUpdateDossier = (
+    id: string,
+    patch: Partial<Pick<Dossier, 'name' | 'description' | 'horizonPlan'>>
+  ) => {
+    setDossiers(prev =>
+      prev.map(d => (d.id === id ? { ...d, ...patch } : d))
+    );
+    showToast('Programme mis à jour.');
   };
 
   const handleDeleteDossier = (id: string) => {
@@ -588,10 +1569,14 @@ export function App() {
       actualStartDate: '',
       actualEndDate: '',
       status: 'À faire',
-      assignee: userProfile.fullName || 'Responsable',
-      autorite: 'Comité de Pilotage (COPIL)',
-      consulte: 'Experts Techniques',
-      informe: 'Parties Prenantes',
+      assignee:
+        userProfile.intervenesAsProgramActor !== false
+          ? userProfile.fullName || ''
+          : '',
+      autorite: '',
+      consulte: '',
+      informe: '',
+      livrable: '',
       budget: type === 'jalon' ? 0 : 2500000,
       antecedent: '—'
     };
@@ -690,7 +1675,12 @@ export function App() {
     );
   };
 
-  // Document generator field handlers
+  // Document generator field handlers — scoped per selected programme (activeDossier)
+  const activeProgramCustomDocsData: CustomDocsMap = {
+    ...defaultCustomDocsData,
+    ...(activeDossier.customDocsData || {})
+  };
+
   const handleUpdateDocField = (
     docType: InstitutionalDocType,
     fieldKey: keyof CustomDocFields,
@@ -704,7 +1694,11 @@ export function App() {
       fieldKey === 'orgStampDataUrl' ||
       fieldKey === 'partnerStampDataUrl';
 
-    setCustomDocsData(prev => {
+    updateActiveDossier(d => {
+      const prev = {
+        ...defaultCustomDocsData,
+        ...(d.customDocsData || {})
+      };
       if (isSharedImageKey && value === '') {
         const cleaned = { ...prev };
         (Object.keys(cleaned) as InstitutionalDocType[]).forEach(k => {
@@ -712,46 +1706,80 @@ export function App() {
             cleaned[k] = { ...cleaned[k], [fieldKey]: '' };
           }
         });
-        return cleaned;
+        return { ...d, customDocsData: cleaned };
       }
       return {
-        ...prev,
-        [docType]: {
-          ...(prev[docType] || defaultCustomDocsData[docType]),
-          [fieldKey]: value
+        ...d,
+        customDocsData: {
+          ...prev,
+          [docType]: {
+            ...(prev[docType] || defaultCustomDocsData[docType]),
+            [fieldKey]: value
+          }
         }
       };
     });
   };
 
   const handleResetDocDefaults = (docType: InstitutionalDocType) => {
-    setCustomDocsData(prev => {
+    updateActiveDossier(d => {
+      const prev = {
+        ...defaultCustomDocsData,
+        ...(d.customDocsData || {})
+      };
       const existing = prev[docType];
+      const cleanedDocsData = { ...prev };
+      (Object.keys(cleanedDocsData) as InstitutionalDocType[]).forEach(k => {
+        if (cleanedDocsData[k]) {
+          cleanedDocsData[k] = {
+            ...cleanedDocsData[k],
+            matricesJson: ''
+          };
+        }
+      });
       return {
-        ...prev,
-        [docType]: {
-          ...defaultCustomDocsData[docType],
-          leftLogoDataUrl: existing?.leftLogoDataUrl,
-          rightLogoDataUrl: existing?.rightLogoDataUrl,
-          bannerImageDataUrl: existing?.bannerImageDataUrl,
-          figureImageDataUrl: existing?.figureImageDataUrl,
-          orgStampDataUrl: existing?.orgStampDataUrl,
-          partnerStampDataUrl: existing?.partnerStampDataUrl
+        ...d,
+        customDocsData: {
+          ...cleanedDocsData,
+          [docType]: {
+            ...defaultCustomDocsData[docType],
+            leftLogoDataUrl: existing?.leftLogoDataUrl,
+            rightLogoDataUrl: existing?.rightLogoDataUrl,
+            bannerImageDataUrl: existing?.bannerImageDataUrl,
+            figureImageDataUrl: existing?.figureImageDataUrl,
+            orgStampDataUrl: existing?.orgStampDataUrl,
+            partnerStampDataUrl: existing?.partnerStampDataUrl,
+            matricesJson: '',
+            slidesConfigJson: '',
+            excludedFieldsJson: ''
+          }
         }
       };
     });
-    showToast('Champs synchronisés avec les données des autres onglets.');
+    showToast('Champs, slides et matrices synchronisés à 100% avec les onglets (Dossiers, Planification, Suivi, RACI, PERT, Kanban).');
   };
 
-  // Shared Macro Filter Bar (Ultra-compact on mobile portrait & landscape — Filters ONLY)
+  const handleUpdateCategorizedActors = (nextList: CategorizedActor[]) => {
+    updateActiveDossier(d => ({
+      ...d,
+      categorizedActors: nextList
+    }));
+  };
+
+  const handleOpenInternalActorProfileFromCategory = (actorName: string) => {
+    setSelectedCategoryActorName(actorName || userProfile.fullName);
+    setIsCategoryProfileModalOpen(true);
+  };
+
+  // Shared Macro Filter Bar (2x size on mobile portrait & landscape — Filters ONLY)
   const renderMacroFilterBar = () => (
-    <div className="bg-white dark:bg-slate-900 rounded-md sm:rounded-xl border border-slate-200 dark:border-slate-800 p-1 md:p-2.5 shadow-xs mb-1.5 sm:mb-3">
+    <div className="bg-white dark:bg-slate-900 rounded-md sm:rounded-xl border border-slate-200 dark:border-slate-800 p-1 sm:p-1.5 md:p-2.5 shadow-xs mb-1.5 sm:mb-3">
       <div className="grid grid-cols-2 gap-1 sm:gap-2 items-center">
-        <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-50 dark:bg-slate-800/80 px-1.5 py-0.5 md:px-2.5 md:py-1 rounded border border-slate-200 dark:border-slate-700 h-6 md:h-auto">
+        <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-50 dark:bg-slate-800/80 px-2 py-1 md:px-2.5 md:py-1 rounded border border-slate-200 dark:border-slate-700 h-7 sm:h-7 md:h-auto">
           <Filter className="hidden sm:block w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#0284c7] dark:text-[#90D5FF] shrink-0" />
           <div className="flex-1 min-w-0">
             <label className="hidden md:block text-[8px] font-bold uppercase text-slate-400 leading-none">
-              1. Axe Stratégique
+              {language === 'EN' ? '1. Strategic Axis' : '1. Axe Stratégique'}
             </label>
             <select
               value={filterAxeId}
@@ -759,10 +1787,12 @@ export function App() {
                 setFilterAxeId(e.target.value);
                 setFilterProjectId('ALL');
               }}
-              className="w-full bg-transparent text-[8.5px] sm:text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none truncate leading-none"
+              className="w-full bg-transparent text-[13px] sm:text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none truncate leading-tight"
             >
               <option value="ALL">
-                Axe : Tous ({(activeDossier.axes || []).length})
+                {language === 'EN'
+                  ? `Axis: All (${(activeDossier.axes || []).length})`
+                  : `Axe : Tous (${(activeDossier.axes || []).length})`}
               </option>
               {(activeDossier.axes || []).map(ax => (
                 <option key={ax.id} value={ax.id}>
@@ -773,19 +1803,21 @@ export function App() {
           </div>
         </div>
 
-        <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-50 dark:bg-slate-800/80 px-1.5 py-0.5 md:px-2.5 md:py-1 rounded border border-slate-200 dark:border-slate-700 h-6 md:h-auto">
+        <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-50 dark:bg-slate-800/80 px-2 py-1 md:px-2.5 md:py-1 rounded border border-slate-200 dark:border-slate-700 h-7 sm:h-7 md:h-auto">
           <Briefcase className="hidden sm:block w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#0284c7] dark:text-[#90D5FF] shrink-0" />
           <div className="flex-1 min-w-0">
             <label className="hidden md:block text-[8px] font-bold uppercase text-slate-400 leading-none">
-              2. Projet Opérationnel
+              {language === 'EN' ? '2. Operational Project' : '2. Projet Opérationnel'}
             </label>
             <select
               value={filterProjectId}
               onChange={e => setFilterProjectId(e.target.value)}
-              className="w-full bg-transparent text-[8.5px] sm:text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none truncate leading-none"
+              className="w-full bg-transparent text-[13px] sm:text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none truncate leading-tight"
             >
               <option value="ALL">
-                Projet : Tous ({availableProjectsInFilter.length})
+                {language === 'EN'
+                  ? `Project: All (${availableProjectsInFilter.length})`
+                  : `Projet : Tous (${availableProjectsInFilter.length})`}
               </option>
               {availableProjectsInFilter.map(pr => (
                 <option key={pr.id} value={pr.id}>
@@ -803,7 +1835,8 @@ export function App() {
   // SLIDEBAR MENU (Burger ☰) — Portefeuille / Dossier selector ONLY + Ordered Tabs
   // ============================================================================
   const renderSlidebar = () => {
-    if (!isSlidebarOpen) return null;
+    // STRICT SECURITY: If not authenticated or drawer closed, NEVER mount slidebar in the DOM
+    if (!authUser || !isSlidebarOpen) return null;
 
     // Reorganized into the exact 4 groups with spacing between groups:
     // Group 1: Accueil & Présentation, Profil Utilisateur
@@ -885,6 +1918,12 @@ export function App() {
           label: t.nav.raci,
           icon: <Users className="w-4 h-4" />,
           badge: 'R-A-C-I'
+        },
+        {
+          id: 'categorie',
+          label: t.nav.categorie,
+          icon: <Layers className="w-4 h-4" />,
+          badge: '5 Cat.'
         }
       ]
     ];
@@ -896,9 +1935,9 @@ export function App() {
           onClick={() => setIsSlidebarOpen(false)}
         />
 
-        <aside className="relative z-10 w-80 sm:w-96 max-w-[92vw] h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden">
-          {/* Sticky Top Bar: ONLY the 4 Action Icons + Close Button */}
-          <div className="px-3.5 py-2.5 bg-[#0c4a6e] text-white flex items-center justify-between border-b border-sky-800 shrink-0">
+        <aside className="relative z-10 w-80 sm:w-96 max-w-[92vw] h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col">
+          {/* Sticky Top Bar: Action Icons + CSV Import/Export right next to Theme Toggle + Close Button */}
+          <div className="relative px-3.5 py-2.5 bg-[#0c4a6e] text-white flex items-center justify-between border-b border-sky-800 shrink-0 z-30">
             <div className="flex items-center gap-1.5">
               {/* 1. Import JSON */}
               <button
@@ -931,7 +1970,35 @@ export function App() {
               >
                 <Printer className="w-4 h-4" />
               </button>
-              {/* 4. Theme Toggle */}
+              {/* Connecter le dossier local faab-plan */}
+              <button
+                type="button"
+                onClick={async () => {
+                  const h = await pickFaabPlanFolder();
+                  if (h) {
+                    showToast(
+                      language === 'EN'
+                        ? `Local workspace folder connected: ${h.name} -> faab-plan/${activeDossier.name}/`
+                        : `Dossier local connecté : ${h.name} -> faab-plan/${activeDossier.name}/`
+                    );
+                  } else {
+                    showToast(
+                      language === 'EN'
+                        ? 'Direct disk access cancelled or restricted by browser.'
+                        : 'Accès dossier local annulé ou restreint par le navigateur.'
+                    );
+                  }
+                }}
+                title={
+                  language === 'EN'
+                    ? 'Connect local folder (faab-plan) on your computer'
+                    : 'Connecter le dossier local sur mon ordinateur (faab-plan)'
+                }
+                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-[#90D5FF] hover:text-slate-950 flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <FolderOpen className="w-4 h-4" />
+              </button>
+              {/* 4. Theme Toggle (Dark / Light Mode) */}
               <button
                 onClick={() =>
                   setTheme(prev => (prev === 'dark' ? 'light' : 'dark'))
@@ -945,18 +2012,190 @@ export function App() {
                   <Moon className="w-4 h-4" />
                 )}
               </button>
+
+              {/* Scanner QR Code / Code-Barres Badge (Uniquement dans l'app, jamais sur l'accueil) */}
+              {activeTab !== 'accueil' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCsvMenuOpen(null);
+                    setIsSlidebarOpen(false);
+                    setIsGlobalScannerOpen(true);
+                  }}
+                  title={
+                    language === 'EN'
+                      ? 'Scan QR Code / Badge Barcode'
+                      : 'Scanner un QR Code / Badge'
+                  }
+                  className="w-8 h-8 rounded-lg bg-white/10 hover:bg-[#90D5FF] hover:text-slate-950 flex items-center justify-center transition-colors cursor-pointer text-[#90D5FF]"
+                >
+                  <QrCode className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* 5. Icon 1 right of Theme Toggle: Importer CSV (Icon only, no text) */}
+              <button
+                type="button"
+                onClick={() =>
+                  setCsvMenuOpen(prev =>
+                    prev === 'slidebar-import' ? null : 'slidebar-import'
+                  )
+                }
+                title="Importer CSV"
+                aria-label="Importer CSV"
+                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+                  csvMenuOpen === 'slidebar-import'
+                    ? 'bg-[#90D5FF] text-slate-950'
+                    : 'bg-white/10 hover:bg-[#90D5FF] hover:text-slate-950'
+                }`}
+              >
+                <FileUp className="w-4 h-4" />
+              </button>
+
+              {/* 6. Icon 2 right of Theme Toggle: Exporter CSV (Icon only, no text) */}
+              <button
+                type="button"
+                onClick={() =>
+                  setCsvMenuOpen(prev =>
+                    prev === 'slidebar-export' ? null : 'slidebar-export'
+                  )
+                }
+                title="Exporter CSV"
+                aria-label="Exporter CSV"
+                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+                  csvMenuOpen === 'slidebar-export'
+                    ? 'bg-[#90D5FF] text-slate-950'
+                    : 'bg-white/10 hover:bg-[#90D5FF] hover:text-slate-950'
+                }`}
+              >
+                <FileDown className="w-4 h-4" />
+              </button>
             </div>
 
             <button
-              onClick={() => setIsSlidebarOpen(false)}
+              onClick={() => {
+                setCsvMenuOpen(null);
+                setIsSlidebarOpen(false);
+              }}
               className="w-8 h-8 rounded-lg bg-white/10 hover:bg-rose-500 text-white flex items-center justify-center transition-colors cursor-pointer"
-              title="Fermer le menu"
+              title={language === 'EN' ? 'Close menu' : 'Fermer le menu'}
             >
               <X className="w-4 h-4" />
             </button>
+
+            {/* Dropdown Menu Importer CSV — Contenu strictement dans les limites du panneau latéral */}
+            {csvMenuOpen === 'slidebar-import' && (
+              <div className="absolute left-2 right-2 top-full mt-1.5 max-w-[calc(100vw-24px)] rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-2xl border-2 border-[#0284c7] dark:border-[#90D5FF] p-1.5 z-[9999] whitespace-normal">
+                <div className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-[#0c4a6e] dark:text-[#90D5FF] border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                  <span>Importer un fichier CSV (UTF-8)</span>
+                  <button
+                    type="button"
+                    onClick={() => setCsvMenuOpen(null)}
+                    className="text-slate-400 hover:text-slate-700 dark:hover:text-white font-bold cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => csvPlanInputRef.current?.click()}
+                  className="w-full px-2.5 py-2 text-left text-[11px] font-extrabold hover:bg-sky-50 dark:hover:bg-sky-950/60 rounded-lg flex items-start gap-2 transition-colors cursor-pointer whitespace-normal break-words leading-snug"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-[#0284c7] dark:text-[#90D5FF] shrink-0 mt-0.5" />
+                  <span className="flex-1">
+                    Importer la Planification (Macroplanning) depuis un CSV
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => csvRaciInputRef.current?.click()}
+                  className="w-full px-2.5 py-2 text-left text-[11px] font-extrabold hover:bg-sky-50 dark:hover:bg-sky-950/60 rounded-lg flex items-start gap-2 border-t border-slate-100 dark:border-slate-800 transition-colors cursor-pointer whitespace-normal break-words leading-snug"
+                >
+                  <Users className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                  <span className="flex-1">
+                    Importer la Matrice RACI depuis un CSV
+                  </span>
+                </button>
+              </div>
+            )}
+
+            {/* Dropdown Menu Exporter CSV — Contenu strictement dans les limites du panneau latéral */}
+            {csvMenuOpen === 'slidebar-export' && (
+              <div className="absolute left-2 right-2 top-full mt-1.5 max-w-[calc(100vw-24px)] rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-2xl border-2 border-[#0284c7] dark:border-[#90D5FF] p-1.5 z-[9999] whitespace-normal">
+                <div className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-[#0c4a6e] dark:text-[#90D5FF] border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                  <span>Exporter en CSV Excel (UTF-8 BOM)</span>
+                  <button
+                    type="button"
+                    onClick={() => setCsvMenuOpen(null)}
+                    className="text-slate-400 hover:text-slate-700 dark:hover:text-white font-bold cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExportPlanificationCSV}
+                  className="w-full px-2.5 py-2 text-left text-[11px] font-extrabold hover:bg-sky-50 dark:hover:bg-sky-950/60 rounded-lg flex items-start gap-2 transition-colors cursor-pointer whitespace-normal break-words leading-snug"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-[#0284c7] dark:text-[#90D5FF] shrink-0 mt-0.5" />
+                  <span className="flex-1">
+                    Exporter la Planification (Macroplanning) en CSV
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportRaciCSV}
+                  className="w-full px-2.5 py-2 text-left text-[11px] font-extrabold hover:bg-sky-50 dark:hover:bg-sky-950/60 rounded-lg flex items-start gap-2 border-t border-slate-100 dark:border-slate-800 transition-colors cursor-pointer whitespace-normal break-words leading-snug"
+                >
+                  <Users className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                  <span className="flex-1">
+                    Exporter la Matrice RACI en CSV
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const ok = await downloadProgramFolderZip(activeDossier.name);
+                    setCsvMenuOpen(null);
+                    if (ok) {
+                      showToast(
+                        language === 'EN'
+                          ? `Complete folder "faab-plan/${activeDossier.name}/" exported as ZIP.`
+                          : `Dossier complet "faab-plan/${activeDossier.name}/" exporté en archive ZIP.`
+                      );
+                    } else {
+                      showToast(
+                        language === 'EN'
+                          ? `Please save at least one document for "${activeDossier.name}" first.`
+                          : `Veuillez d'abord enregistrer au moins un document pour le programme "${activeDossier.name}".`
+                      );
+                    }
+                  }}
+                  className="w-full px-2.5 py-2 text-left text-[11px] font-extrabold hover:bg-sky-50 dark:hover:bg-sky-950/60 rounded-lg flex items-start gap-2 border-t border-slate-100 dark:border-slate-800 transition-colors cursor-pointer whitespace-normal break-words leading-snug"
+                >
+                  <FolderOpen className="w-4 h-4 text-[#0284c7] dark:text-[#90D5FF] shrink-0 mt-0.5" />
+                  <span className="flex-1">
+                    {language === 'EN'
+                      ? `Export entire folder: faab-plan/${activeDossier.name}/*.zip`
+                      : `Exporter tout le dossier : faab-plan/${activeDossier.name}/*.zip`}
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* SCROLLABLE CONTAINER: Logo + Description below the 4 icons scrolls up with mobile swipe! */}
+          {/* Executive Google Auth Status in Slidebar */}
+          <AuthStatusButton
+            user={authUser}
+            isAuthLoading={isAuthLoading}
+            isSigningIn={isSigningIn}
+            onSignIn={handleGoogleSignIn}
+            onSignOut={handleSignOut}
+            language={language}
+            variant="slidebar"
+          />
+
+          {/* SCROLLABLE CONTAINER: Logo + Description below the icons scrolls up with mobile swipe! */}
           <div className="flex-1 overflow-y-auto divide-y divide-slate-200 dark:divide-slate-800">
             {/* Scrollable Logo & Brand Header */}
             <div className="p-4 bg-gradient-to-b from-[#0c4a6e] to-[#082f49] text-white">
@@ -966,96 +2205,106 @@ export function App() {
                 </div>
                 <div className="min-w-0">
                   <div className="inline-block px-2 py-0.5 rounded bg-[#90D5FF] text-slate-950 text-[9px] font-black uppercase tracking-widest mb-1">
-                    PLATEFORME UNIVERSELLE
+                    {language === 'EN' ? 'UNIVERSAL PLATFORM' : 'PLATEFORME UNIVERSELLE'}
                   </div>
                   <h2 className="text-base font-black tracking-tight uppercase truncate">
                     FAAB PLAN
                   </h2>
                   <p className="text-[11px] text-[#90D5FF] font-medium leading-snug">
-                    Planification Stratégique, Réseau PERT, RACI, Suivi & Rapports
+                    {language === 'EN'
+                      ? 'Strategic Planning, PERT Network, RACI, M&E & Reports'
+                      : 'Planification Stratégique, Réseau PERT, RACI, Suivi & Rapports'}
                   </p>
                 </div>
               </div>
               {lastJsonFileName && (
                 <div className="mt-2.5 px-2.5 py-1 rounded bg-white/10 text-[10px] font-mono text-[#90D5FF] truncate">
-                  JSON actif : {lastJsonFileName}
+                  {language === 'EN' ? 'Active JSON:' : 'JSON actif :'} {lastJsonFileName}
                 </div>
               )}
             </div>
 
-            {/* Sélecteur de Portefeuille / Dossier UNIQUEMENT (Compact on mobile) */}
-            <div className="p-2 sm:p-3 bg-sky-50/60 dark:bg-slate-800/50 space-y-1 sm:space-y-1.5">
-              <label className="block text-[8.5px] sm:text-[10px] font-black uppercase tracking-wider text-[#0284c7] dark:text-[#90D5FF] leading-none">
-                Portefeuille / Dossier
-              </label>
-              <select
-                value={activeDossier.id}
-                onChange={e => {
-                  setActiveDossierId(e.target.value);
-                  setFilterAxeId('ALL');
-                  setFilterProjectId('ALL');
-                  const found = dossiers.find(d => d.id === e.target.value);
-                  if (found) showToast(`Dossier sélectionné : ${found.name}`);
-                }}
-                className="w-full h-7 sm:h-auto bg-white dark:bg-slate-900 px-2 py-0.5 sm:px-2.5 sm:py-1.5 rounded-md sm:rounded-lg border border-[#90D5FF] dark:border-slate-700 text-[10px] sm:text-xs font-extrabold text-slate-900 dark:text-white focus:outline-none truncate"
-              >
-                {dossiers.map(d => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Navigation Modules organized into 4 groups with spacing between each group */}
-            <div className="p-3 space-y-4">
-              {navGroups.map((group, groupIdx) => (
-                <div
-                  key={groupIdx}
-                  className={`space-y-1 ${
-                    groupIdx > 0
-                      ? 'pt-3 border-t border-slate-200/80 dark:border-slate-800'
-                      : ''
-                  }`}
+            {/* Contenu du menu déroulant sous le header : taille de police 12px en mode mobile */}
+            <div className="slidebar-menu-content divide-y divide-slate-200 dark:divide-slate-800">
+              {/* Sélecteur de Portefeuille / Dossier UNIQUEMENT */}
+              <div className="p-2.5 sm:p-3 bg-sky-50/60 dark:bg-slate-800/50 space-y-1 sm:space-y-1.5">
+                <label className="block text-[12px] sm:text-[10px] font-black uppercase tracking-wider text-[#0284c7] dark:text-[#90D5FF] leading-none">
+                  {language === 'EN' ? 'Portfolio / Dossier' : 'Portefeuille / Dossier'}
+                </label>
+                <select
+                  value={activeDossier.id}
+                  onChange={e => {
+                    setActiveDossierId(e.target.value);
+                    setFilterAxeId('ALL');
+                    setFilterProjectId('ALL');
+                    const found = dossiers.find(d => d.id === e.target.value);
+                    if (found)
+                      showToast(
+                        language === 'EN'
+                          ? `Selected dossier: ${found.name}`
+                          : `Dossier sélectionné : ${found.name}`
+                      );
+                  }}
+                  className="w-full h-8 sm:h-auto bg-white dark:bg-slate-900 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-md sm:rounded-lg border border-[#90D5FF] dark:border-slate-700 text-[12px] sm:text-xs font-extrabold text-slate-900 dark:text-white focus:outline-none truncate"
                 >
-                  {group.map(item => {
-                    const isActive = activeTab === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => navigateTo(item.id)}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                          isActive
-                            ? 'bg-[#0c4a6e] text-white shadow-xs'
-                            : 'text-slate-700 dark:text-slate-200 hover:bg-sky-50 dark:hover:bg-slate-800'
-                        }`}
-                      >
-                        <span className="flex items-center gap-2.5 truncate">
-                          <span
-                            className={
-                              isActive ? 'text-[#90D5FF]' : 'text-[#0284c7]'
-                            }
-                          >
-                            {item.icon}
+                  {dossiers.map(d => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Navigation Modules organized into 4 groups with spacing between each group */}
+              <div className="p-3 space-y-4">
+                {navGroups.map((group, groupIdx) => (
+                  <div
+                    key={groupIdx}
+                    className={`space-y-1 ${
+                      groupIdx > 0
+                        ? 'pt-3 border-t border-slate-200/80 dark:border-slate-800'
+                        : ''
+                    }`}
+                  >
+                    {group.map(item => {
+                      const isActive = activeTab === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => navigateTo(item.id)}
+                          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-[12px] sm:text-xs font-bold transition-all cursor-pointer ${
+                            isActive
+                              ? 'bg-[#0c4a6e] text-white shadow-xs'
+                              : 'text-slate-700 dark:text-slate-200 hover:bg-sky-50 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2.5 truncate">
+                            <span
+                              className={
+                                isActive ? 'text-[#90D5FF]' : 'text-[#0284c7]'
+                              }
+                            >
+                              {item.icon}
+                            </span>
+                            <span className="truncate text-[12px] sm:text-xs">{item.label}</span>
                           </span>
-                          <span className="truncate">{item.label}</span>
-                        </span>
-                        {item.badge && (
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
-                              isActive
-                                ? 'bg-[#90D5FF] text-slate-950'
-                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-                            }`}
-                          >
-                            {item.badge}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
+                          {item.badge && (
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[12px] sm:text-[10px] font-black ${
+                                isActive
+                                  ? 'bg-[#90D5FF] text-slate-950'
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                              }`}
+                            >
+                              {item.badge}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </aside>
@@ -1124,22 +2373,22 @@ export function App() {
     const totalActiveOps = allDossierTasks.length;
     const donutSegments = [
       {
-        label: 'Bloquées',
+        label: language === 'EN' ? 'Blocked' : 'Bloquées',
         count: statusCounts.Bloqué,
         color: '#ef4444'
       },
       {
-        label: 'En cours',
+        label: language === 'EN' ? 'In Progress' : 'En cours',
         count: statusCounts['En cours'],
         color: '#0ea5e9'
       },
       {
-        label: 'Terminées',
+        label: language === 'EN' ? 'Completed' : 'Terminées',
         count: statusCounts.Terminé,
         color: '#10b981'
       },
       {
-        label: 'À faire',
+        label: language === 'EN' ? 'To Do' : 'À faire',
         count: statusCounts['À faire'],
         color: '#94a3b8'
       }
@@ -1157,7 +2406,9 @@ export function App() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 sm:gap-3">
           <div className="bg-white dark:bg-slate-900 p-2 sm:p-4 rounded-lg sm:rounded-xl border border-slate-200 dark:border-slate-800 border-l-3 sm:border-l-4 border-l-[#0c4a6e] shadow-xs">
             <div className="flex items-center justify-between text-[8.5px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 uppercase leading-tight">
-              <span className="truncate">Axes & Projets</span>
+              <span className="truncate">
+                {language === 'EN' ? 'Axes & Projects' : 'Axes & Projets'}
+              </span>
               <Layers className="w-3 h-3 sm:w-4 sm:h-4 text-[#0284c7] shrink-0" />
             </div>
             <div className="mt-0.5 sm:mt-2 text-xs sm:text-2xl font-black text-slate-900 dark:text-white leading-tight truncate">
@@ -1171,20 +2422,25 @@ export function App() {
 
           <div className="bg-white dark:bg-slate-900 p-2 sm:p-4 rounded-lg sm:rounded-xl border border-slate-200 dark:border-slate-800 border-l-3 sm:border-l-4 border-l-[#0284c7] shadow-xs">
             <div className="flex items-center justify-between text-[8.5px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 uppercase leading-tight">
-              <span className="truncate">Activités & Jalons</span>
+              <span className="truncate">
+                {language === 'EN' ? 'Activities & Milestones' : 'Activités & Jalons'}
+              </span>
               <Target className="w-3 h-3 sm:w-4 sm:h-4 text-[#0284c7] shrink-0" />
             </div>
             <div className="mt-0.5 sm:mt-2 text-xs sm:text-2xl font-black text-slate-900 dark:text-white leading-tight truncate">
-              {allDossierTasks.length} Élément(s)
+              {allDossierTasks.length} {language === 'EN' ? 'Item(s)' : 'Élément(s)'}
             </div>
             <div className="mt-0.5 sm:mt-1 text-[8px] sm:text-[11px] text-emerald-600 font-bold truncate leading-tight">
-              {statusCounts.Terminé} terminé(s) • {statusCounts['En cours']} en cours
+              {statusCounts.Terminé} {language === 'EN' ? 'done' : 'terminé(s)'} •{' '}
+              {statusCounts['En cours']} {language === 'EN' ? 'in progress' : 'en cours'}
             </div>
           </div>
 
           <div className="bg-white dark:bg-slate-900 p-2 sm:p-4 rounded-lg sm:rounded-xl border border-slate-200 dark:border-slate-800 border-l-3 sm:border-l-4 border-l-emerald-500 shadow-xs">
             <div className="flex items-center justify-between text-[8.5px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 uppercase leading-tight">
-              <span className="truncate">Budget Consolidé</span>
+              <span className="truncate">
+                {language === 'EN' ? 'Consolidated Budget' : 'Budget Consolidé'}
+              </span>
               <DollarSign className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-500 shrink-0" />
             </div>
             <div className="mt-0.5 sm:mt-2 text-[11px] sm:text-xl font-black text-slate-900 dark:text-white truncate leading-tight">
@@ -1197,7 +2453,9 @@ export function App() {
 
           <div className="bg-white dark:bg-slate-900 p-2 sm:p-4 rounded-lg sm:rounded-xl border border-slate-200 dark:border-slate-800 border-l-3 sm:border-l-4 border-l-[#90D5FF] shadow-xs">
             <div className="flex items-center justify-between text-[8.5px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 uppercase leading-tight">
-              <span className="truncate">Taux d’Achèvement</span>
+              <span className="truncate">
+                {language === 'EN' ? 'Completion Rate' : 'Taux d’Achèvement'}
+              </span>
               <TrendingUp className="w-3 h-3 sm:w-4 sm:h-4 text-[#0284c7] shrink-0" />
             </div>
             <div className="mt-0.5 sm:mt-2 text-xs sm:text-2xl font-black text-[#0284c7] dark:text-[#90D5FF] leading-tight">
@@ -1219,41 +2477,47 @@ export function App() {
             <div>
               <h3 className="text-[11px] sm:text-base font-extrabold text-slate-800 dark:text-white mb-1.5 sm:mb-3 flex items-center gap-1.5 sm:gap-2">
                 <Briefcase className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-600 dark:text-[#90D5FF] shrink-0" />
-                <span>Répartition opérationnelle par Projet</span>
+                <span>
+                  {language === 'EN'
+                    ? 'Operational Breakdown by Project'
+                    : 'Répartition opérationnelle par Projet'}
+                </span>
               </h3>
 
               {/* Legend matching the screenshot */}
               <div className="flex flex-wrap items-center justify-center gap-x-2.5 sm:gap-x-4 gap-y-1 text-[8.5px] sm:text-[11px] font-medium mb-2 sm:mb-4">
                 <span className="inline-flex items-center gap-1 text-[#ef4444]">
                   <span className="w-2 h-2 sm:w-3 sm:h-3 rounded-xs bg-[#ef4444] inline-block" />
-                  Bloquées (Goulots)
+                  {language === 'EN' ? 'Blocked (Bottlenecks)' : 'Bloquées (Goulots)'}
                 </span>
                 <span className="inline-flex items-center gap-1 text-[#8b5cf6]">
                   <span className="w-2 h-2 sm:w-3 sm:h-3 rounded-xs bg-[#8b5cf6] inline-block" />
-                  En Retard
+                  {language === 'EN' ? 'Delayed' : 'En Retard'}
                 </span>
                 <span className="inline-flex items-center gap-1 text-[#0ea5e9]">
                   <span className="w-2 h-2 sm:w-3 sm:h-3 rounded-xs bg-[#0ea5e9] inline-block" />
-                  En cours
+                  {language === 'EN' ? 'In Progress' : 'En cours'}
                 </span>
                 <span className="inline-flex items-center gap-1 text-[#10b981]">
                   <span className="w-2 h-2 sm:w-3 sm:h-3 rounded-xs bg-[#10b981] inline-block" />
-                  Terminées
+                  {language === 'EN' ? 'Completed' : 'Terminées'}
                 </span>
                 <span className="inline-flex items-center gap-1 text-[#64748b]">
                   <span className="w-2 h-2 sm:w-3 sm:h-3 rounded-xs bg-[#64748b] inline-block" />
-                  Total Tâches
+                  {language === 'EN' ? 'Total Tasks' : 'Total Tâches'}
                 </span>
                 <span className="inline-flex items-center gap-1 text-[#94a3b8]">
                   <span className="w-2 h-2 sm:w-3 sm:h-3 rounded-xs bg-[#94a3b8] inline-block" />
-                  À faire
+                  {language === 'EN' ? 'To Do' : 'À faire'}
                 </span>
               </div>
             </div>
 
             {projectChartData.length === 0 ? (
               <p className="text-xs text-slate-400 italic py-8 sm:py-12 text-center">
-                Aucun projet pour ce filtre.
+                {language === 'EN'
+                  ? 'No project for this filter.'
+                  : 'Aucun projet pour ce filtre.'}
               </p>
             ) : (
               <div className="relative pt-1 sm:pt-2 pb-1">
@@ -1379,7 +2643,9 @@ export function App() {
           <div className="bg-white dark:bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 p-2.5 sm:p-5 shadow-sm flex flex-col justify-between">
             <h3 className="text-[11px] sm:text-base font-extrabold text-slate-800 dark:text-white mb-1 sm:mb-2 flex items-center gap-1.5 sm:gap-2">
               <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-600 dark:text-[#90D5FF] shrink-0" />
-              <span>Répartition par Statut</span>
+              <span>
+                {language === 'EN' ? 'Breakdown by Status' : 'Répartition par Statut'}
+              </span>
             </h3>
 
             {/* SVG Donut Chart */}
@@ -1434,26 +2700,28 @@ export function App() {
               <div className="flex flex-wrap items-center justify-center gap-x-2.5 sm:gap-x-4 gap-y-1 text-[8.5px] sm:text-xs font-medium mt-2 sm:mt-3">
                 <span className="inline-flex items-center gap-1 text-[#ef4444]">
                   <span className="w-2 h-2 sm:w-3 sm:h-3 rounded-xs bg-[#ef4444] inline-block" />
-                  Bloquées
+                  {language === 'EN' ? 'Blocked' : 'Bloquées'}
                 </span>
                 <span className="inline-flex items-center gap-1 text-[#0ea5e9]">
                   <span className="w-2 h-2 sm:w-3 sm:h-3 rounded-xs bg-[#0ea5e9] inline-block" />
-                  En cours
+                  {language === 'EN' ? 'In Progress' : 'En cours'}
                 </span>
                 <span className="inline-flex items-center gap-1 text-[#10b981]">
                   <span className="w-2 h-2 sm:w-3 sm:h-3 rounded-xs bg-[#10b981] inline-block" />
-                  Terminées
+                  {language === 'EN' ? 'Completed' : 'Terminées'}
                 </span>
                 <span className="inline-flex items-center gap-1 text-[#94a3b8]">
                   <span className="w-2 h-2 sm:w-3 sm:h-3 rounded-xs bg-[#94a3b8] inline-block" />
-                  À faire
+                  {language === 'EN' ? 'To Do' : 'À faire'}
                 </span>
               </div>
             </div>
 
             {/* Footer Total */}
             <div className="pt-2 sm:pt-3 border-t border-slate-100 dark:border-slate-800 text-center text-[9.5px] sm:text-xs text-slate-500 dark:text-slate-400">
-              Total des opérations actives :{' '}
+              {language === 'EN'
+                ? 'Total active operations:'
+                : 'Total des opérations actives :'}{' '}
               <strong className="text-slate-900 dark:text-white font-black">
                 {totalActiveOps}
               </strong>
@@ -1465,12 +2733,16 @@ export function App() {
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm">
           <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-900 dark:text-white mb-3 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-500" />
-            Goulots d’étranglement & Alertes d’Écarts ({delayedRows.length})
+            {language === 'EN'
+              ? `Bottlenecks & Variance Alerts (${delayedRows.length})`
+              : `Goulots d’étranglement & Alertes d’Écarts (${delayedRows.length})`}
           </h3>
           {delayedRows.length === 0 ? (
             <div className="p-4 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
-              Aucun goulot d’étranglement ni écart critique détecté sur les tâches actives.
+              {language === 'EN'
+                ? 'No bottleneck or critical variance detected on active tasks.'
+                : 'Aucun goulot d’étranglement ni écart critique détecté sur les tâches actives.'}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
@@ -1487,13 +2759,17 @@ export function App() {
                       {r.task.name}
                     </div>
                     <div className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
-                      Responsable : <strong>{r.task.assignee}</strong> • Fin prévue :{' '}
+                      {language === 'EN' ? 'Owner:' : 'Responsable :'}{' '}
+                      <strong>{r.task.assignee}</strong> •{' '}
+                      {language === 'EN' ? 'Planned end:' : 'Fin prévue :'}{' '}
                       {r.task.endDate}
                     </div>
                   </div>
                   <span className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 text-[10px] font-black shrink-0">
                     {r.metrics.effectiveStatus === 'Bloqué'
-                      ? 'BLOQUÉ'
+                      ? language === 'EN'
+                        ? 'BLOCKED'
+                        : 'BLOQUÉ'
                       : r.metrics.ecartFinLabel}
                   </span>
                 </div>
@@ -1550,10 +2826,14 @@ export function App() {
           <div>
             <h2 className="text-sm sm:text-base font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-2">
               <Network className="w-4 h-4 text-[#0284c7] dark:text-[#90D5FF]" />
-              Réseau PERT & Chemin Critique (CPM)
+              {language === 'EN'
+                ? 'PERT Network & Critical Path (CPM)'
+                : 'Réseau PERT & Chemin Critique (CPM)'}
             </h2>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Dézoomez jusqu’à 10% pour visualiser l’intégralité du graphe PERT sur mobile et ordinateur
+              {language === 'EN'
+                ? 'Zoom out down to 10% to view the entire PERT graph on mobile and desktop'
+                : 'Dézoomez jusqu’à 10% pour visualiser l’intégralité du graphe PERT sur mobile et ordinateur'}
             </p>
           </div>
 
@@ -1568,7 +2848,7 @@ export function App() {
                     : 'text-slate-600 dark:text-slate-300'
                 }`}
               >
-                Vue Graphique PERT
+                {language === 'EN' ? 'PERT Graph View' : 'Vue Graphique PERT'}
               </button>
               <button
                 onClick={() => setPertViewMode('table')}
@@ -1578,7 +2858,9 @@ export function App() {
                     : 'text-slate-600 dark:text-slate-300'
                 }`}
               >
-                Vue Tableau Antécéd. / Précéd.
+                {language === 'EN'
+                  ? 'Predecessor / Chain Table View'
+                  : 'Vue Tableau Antécéd. / Précéd.'}
               </button>
             </div>
 
@@ -1590,7 +2872,9 @@ export function App() {
                     setPertZoom(z => Math.max(0.1, Number((z - 0.1).toFixed(2))))
                   }
                   className="p-1 rounded hover:bg-white dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer"
-                  title="Dézoomer jusqu'à 10%"
+                  title={
+                    language === 'EN' ? 'Zoom out down to 10%' : "Dézoomer jusqu'à 10%"
+                  }
                 >
                   <ZoomOut className="w-3.5 h-3.5" />
                 </button>
@@ -1602,21 +2886,21 @@ export function App() {
                     setPertZoom(z => Math.min(2.0, Number((z + 0.1).toFixed(2))))
                   }
                   className="p-1 rounded hover:bg-white dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer"
-                  title="Zoomer +"
+                  title={language === 'EN' ? 'Zoom in +' : 'Zoomer +'}
                 >
                   <ZoomIn className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => setPertZoom(0.1)}
                   className="px-1.5 py-0.5 rounded bg-sky-100 dark:bg-slate-700 text-[#0c4a6e] dark:text-[#90D5FF] text-[9px] font-black cursor-pointer"
-                  title="Dézoomer à 10%"
+                  title={language === 'EN' ? 'Zoom out to 10%' : 'Dézoomer à 10%'}
                 >
                   10%
                 </button>
                 <button
                   onClick={() => setPertZoom(1)}
                   className="p-1 rounded hover:bg-white dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer"
-                  title="Réinitialiser à 100%"
+                  title={language === 'EN' ? 'Reset to 100%' : 'Réinitialiser à 100%'}
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                 </button>
@@ -1634,10 +2918,13 @@ export function App() {
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-black uppercase tracking-wider text-[#0c4a6e] dark:text-[#90D5FF]">
-                  {ps.projectName} — Durée Totale : {ps.projectDuration}j
+                  {ps.projectName} —{' '}
+                  {language === 'EN' ? 'Total Duration:' : 'Durée Totale :'}{' '}
+                  {ps.projectDuration}j
                 </span>
                 <span className="px-2.5 py-0.5 rounded bg-[#0c4a6e] text-white text-[10px] font-black">
-                  Chemin Critique : {ps.criticalPathCodes.join(' → ') || 'N/A'}
+                  {language === 'EN' ? 'Critical Path:' : 'Chemin Critique :'}{' '}
+                  {ps.criticalPathCodes.join(' → ') || 'N/A'}
                 </span>
               </div>
               <p className="text-xs text-slate-700 dark:text-slate-300">
@@ -1795,16 +3082,38 @@ export function App() {
               <thead>
                 <tr className="bg-[#0c4a6e] text-white">
                   <th className="text-left">Code</th>
-                  <th className="text-left">Activité / Jalon</th>
-                  <th className="text-center">Antécéd.</th>
-                  <th className="text-left">Précéd. (Chaîne Complète)</th>
-                  <th className="text-center">Durée</th>
-                  <th className="text-center">ES (Tôt)</th>
-                  <th className="text-center">EF (Tôt)</th>
-                  <th className="text-center">LS (Tard)</th>
-                  <th className="text-center">LF (Tard)</th>
-                  <th className="text-center">Marge Totale</th>
-                  <th className="text-center">Chemin Critique</th>
+                  <th className="text-left">
+                    {language === 'EN' ? 'Activity / Milestone' : 'Activité / Jalon'}
+                  </th>
+                  <th className="text-center">
+                    {language === 'EN' ? 'Predec.' : 'Antécéd.'}
+                  </th>
+                  <th className="text-left">
+                    {language === 'EN'
+                      ? 'Preceding (Full Chain)'
+                      : 'Précéd. (Chaîne Complète)'}
+                  </th>
+                  <th className="text-center">
+                    {language === 'EN' ? 'Duration' : 'Durée'}
+                  </th>
+                  <th className="text-center">
+                    {language === 'EN' ? 'ES (Early)' : 'ES (Tôt)'}
+                  </th>
+                  <th className="text-center">
+                    {language === 'EN' ? 'EF (Early)' : 'EF (Tôt)'}
+                  </th>
+                  <th className="text-center">
+                    {language === 'EN' ? 'LS (Late)' : 'LS (Tard)'}
+                  </th>
+                  <th className="text-center">
+                    {language === 'EN' ? 'LF (Late)' : 'LF (Tard)'}
+                  </th>
+                  <th className="text-center">
+                    {language === 'EN' ? 'Total Float' : 'Marge Totale'}
+                  </th>
+                  <th className="text-center">
+                    {language === 'EN' ? 'Critical Path' : 'Chemin Critique'}
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -1838,11 +3147,11 @@ export function App() {
                     <td className="text-center">
                       {node.isCritical ? (
                         <span className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 text-[9px] font-black">
-                          CRITIQUE
+                          {language === 'EN' ? 'CRITICAL' : 'CRITIQUE'}
                         </span>
                       ) : (
                         <span className="text-[10px] text-emerald-600 font-bold">
-                          Souple
+                          {language === 'EN' ? 'Flexible' : 'Souple'}
                         </span>
                       )}
                     </td>
@@ -1865,20 +3174,24 @@ export function App() {
       title: string;
       headerBg: string;
     }> = [
-      { status: 'À faire', title: 'À Faire', headerBg: 'bg-slate-700 text-white' },
+      {
+        status: 'À faire',
+        title: language === 'EN' ? 'To Do' : 'À Faire',
+        headerBg: 'bg-slate-700 text-white'
+      },
       {
         status: 'En cours',
-        title: 'En Cours d’Exécution',
+        title: language === 'EN' ? 'In Execution' : 'En Cours d’Exécution',
         headerBg: 'bg-[#0284c7] text-white'
       },
       {
         status: 'Bloqué',
-        title: 'Bloqué / Retard',
+        title: language === 'EN' ? 'Blocked / Delayed' : 'Bloqué / Retard',
         headerBg: 'bg-amber-500 text-slate-950'
       },
       {
         status: 'Terminé',
-        title: 'Terminé',
+        title: language === 'EN' ? 'Completed' : 'Terminé',
         headerBg: 'bg-emerald-600 text-white'
       }
     ];
@@ -1890,10 +3203,16 @@ export function App() {
         <div className="bg-white dark:bg-slate-900 rounded-lg sm:rounded-xl border border-slate-200 dark:border-slate-800 p-2 sm:p-3 shadow-sm">
           <h2 className="text-xs sm:text-base font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-1.5 sm:gap-2">
             <Kanban className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#0284c7] dark:text-[#90D5FF] shrink-0" />
-            <span>Tableau Kanban Interactif (Basé sur l’Exécution Réelle)</span>
+            <span>
+              {language === 'EN'
+                ? 'Interactive Kanban Board (Driven by Real Execution)'
+                : 'Tableau Kanban Interactif (Basé sur l’Exécution Réelle)'}
+            </span>
           </h2>
           <p className="text-[9.5px] sm:text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-            Déplacez une tâche ou un jalon d’une colonne de statut vers une autre : ses dates prévues se recalculent automatiquement en conservant sa durée et la logique des antécédents.
+            {language === 'EN'
+              ? 'Move a task or milestone from one status column to another: its planned dates automatically recalculate while preserving its duration and predecessor logic.'
+              : 'Déplacez une tâche ou un jalon d’une colonne de statut vers une autre : ses dates prévues se recalculent automatiquement en conservant sa durée et la logique des antécédents.'}
           </p>
         </div>
 
@@ -1952,9 +3271,13 @@ export function App() {
                         </div>
 
                         <div className="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 space-y-0.5">
-                          <div className="truncate">Réalisateur : {task.assignee}</div>
+                          <div className="truncate">
+                            {language === 'EN' ? 'Assignee:' : 'Réalisateur :'}{' '}
+                            {task.assignee}
+                          </div>
                           <div>
-                            Prévu: {task.startDate} → {task.endDate}
+                            {language === 'EN' ? 'Planned:' : 'Prévu:'}{' '}
+                            {task.startDate} → {task.endDate}
                           </div>
                         </div>
 
@@ -1973,7 +3296,7 @@ export function App() {
                                 }
                                 className="px-1.5 sm:px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 hover:bg-[#90D5FF] hover:text-slate-950 text-[8.5px] sm:text-[9px] font-bold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
                               >
-                                → {targetCol.status}
+                                → {targetCol.title}
                               </button>
                             ))}
                         </div>
@@ -1991,12 +3314,26 @@ export function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
-      {/* Hidden JSON File Input */}
+      {/* Hidden JSON & CSV File Inputs */}
       <input
         ref={fileInputRef}
         type="file"
         accept=".json"
         onChange={handleImportJSON}
+        className="hidden"
+      />
+      <input
+        ref={csvPlanInputRef}
+        type="file"
+        accept=".csv,text/csv"
+        onChange={handleImportPlanificationCSV}
+        className="hidden"
+      />
+      <input
+        ref={csvRaciInputRef}
+        type="file"
+        accept=".csv,text/csv"
+        onChange={handleImportRaciCSV}
         className="hidden"
       />
 
@@ -2011,8 +3348,8 @@ export function App() {
         </div>
       )}
 
-      {/* MOBILE ONLY ON OTHER TABS (activeTab !== 'accueil'): Burger Icon + App Icon right next to it (Same Size w-10 h-10, No Navbar) */}
-      {activeTab !== 'accueil' && (
+      {/* MOBILE ONLY ON OTHER TABS (activeTab !== 'accueil'): Burger Icon + App Icon right next to it (Same Size w-10 h-10, No Header) */}
+      {authUser && activeTab !== 'accueil' && (
         <div className="md:hidden fixed top-2 left-2 z-40 flex items-center gap-1.5 no-print">
           <button
             onClick={() => setIsSlidebarOpen(true)}
@@ -2034,27 +3371,30 @@ export function App() {
         </div>
       )}
 
-      {/* INSTITUTIONAL NAVBAR: Visible on ALL screens on Home Page (accueil), and on Tablet/Desktop (md:block) on other tabs */}
+      {/* INSTITUTIONAL NAVBAR: Locked at top of screen on scroll (fixed top-0 left-0 right-0 z-40). Visible on ALL screens on Home Page (accueil), and on Tablet/Desktop (md:block) on other tabs (No header on Mobile on other tabs) */}
       <header
         className={`${
           activeTab === 'accueil' ? 'block' : 'hidden md:block'
-        } sticky top-0 z-30 bg-[#0c4a6e] text-white border-b-2 border-[#90D5FF] shadow-md no-print`}
+        } fixed top-0 left-0 right-0 z-40 bg-[#0c4a6e] text-white border-b-2 border-[#90D5FF] shadow-md no-print`}
       >
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 sm:py-2.5 flex items-center gap-3 sm:gap-4">
-          <button
-            onClick={() => setIsSlidebarOpen(true)}
-            aria-label="Ouvrir le menu déroulant"
-            title="Ouvrir le menu déroulant"
-            className="w-10 h-10 rounded-xl bg-sky-950/80 text-[#90D5FF] hover:bg-[#90D5FF] hover:text-slate-950 flex items-center justify-center transition-all border border-[#90D5FF]/60 shadow-sm cursor-pointer shrink-0"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 sm:py-2.5 flex items-center gap-2.5 sm:gap-4">
+          {/* Burger Menu Button (STRICT DOM REMOVAL: Only mounted when authUser is connected) */}
+          {authUser && (
+            <button
+              onClick={() => setIsSlidebarOpen(true)}
+              aria-label="Ouvrir le menu déroulant"
+              title="Ouvrir le menu déroulant"
+              className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-sky-950/80 text-[#90D5FF] hover:bg-[#90D5FF] hover:text-slate-950 flex items-center justify-center transition-all border border-[#90D5FF]/60 shadow-sm cursor-pointer shrink-0"
+            >
+              <Menu className="w-6 h-6" />
+            </button>
+          )}
 
           <div
             onClick={() => navigateTo('accueil')}
-            className="flex items-center gap-2.5 sm:gap-3 cursor-pointer select-none min-w-0"
+            className="flex items-center gap-2.5 sm:gap-3 cursor-pointer select-none min-w-0 flex-1"
           >
-            <div className="w-10 h-10 bg-white p-1 rounded-xl shadow-sm shrink-0 flex items-center justify-center">
+            <div className="w-11 h-11 sm:w-12 sm:h-12 bg-white p-0.5 rounded-xl shadow-sm shrink-0 flex items-center justify-center">
               <AppLogo className="w-full h-full" />
             </div>
             <div className="min-w-0">
@@ -2066,26 +3406,183 @@ export function App() {
               </p>
             </div>
           </div>
+
+          {/* Le bouton de Scanner QR / Badge ne doit PAS être affiché ni caché par du CSS sur la page d'accueil. Il apparaît UNIQUEMENT dans l'app (activeTab !== 'accueil') ET si connecté */}
+          {authUser && activeTab !== 'accueil' && (
+            <button
+              type="button"
+              onClick={() => setIsGlobalScannerOpen(true)}
+              title={
+                language === 'EN'
+                  ? 'Scan QR Code (vCard) or Badge Barcode (CODE-128)'
+                  : 'Scanner un QR Code (vCard) ou Code-Barres Badge (CODE-128)'
+              }
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 h-9 rounded-xl bg-sky-950/90 hover:bg-[#90D5FF] text-[#90D5FF] hover:text-slate-950 border border-[#90D5FF]/60 text-[10px] sm:text-xs font-extrabold transition-all cursor-pointer shrink-0 shadow-sm"
+            >
+              <QrCode className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">
+                {language === 'EN' ? 'QR / Badge Scanner' : 'Scanner QR / Badge'}
+              </span>
+            </button>
+          )}
+
+          {/* Bouton d'État Authentification Google / Gmail */}
+          <AuthStatusButton
+            user={authUser}
+            isAuthLoading={isAuthLoading}
+            isSigningIn={isSigningIn}
+            onSignIn={handleGoogleSignIn}
+            onSignOut={handleSignOut}
+            language={language}
+            variant="header"
+          />
         </div>
+
+        {/* BARRE DE NAVIGATION DES SECTIONS DE LA PAGE D'ACCUEIL (Uniquement sur la page d'accueil, en dessous du logo et de l'intitulé) */}
+        {activeTab === 'accueil' && (
+          <nav
+            aria-label="Sections explicatives de la page d'accueil"
+            className="border-t border-sky-800/80 bg-[#082f49]/95 backdrop-blur-xs relative"
+          >
+            <div
+              ref={homeNavScrollRef}
+              className="max-w-7xl mx-auto py-2 flex items-center gap-2 sm:gap-3 overflow-x-auto hide-scrollbar scroll-smooth"
+            >
+              {/* Left spacer so the first section title can also position horizontally at the exact center of the navbar */}
+              <div
+                className="shrink-0 w-[36vw] sm:w-[40vw] lg:w-[42%]"
+                aria-hidden="true"
+              />
+              {[
+                {
+                  id: 'section-presentation',
+                  label:
+                    language === 'FR'
+                      ? '1. Présentation Générale'
+                      : '1. Overview'
+                },
+                {
+                  id: 'section-utilisation',
+                  label:
+                    language === 'FR'
+                      ? '2. Mode d’Emploi & Modules'
+                      : '2. Modules & Workflow'
+                },
+                {
+                  id: 'section-documents',
+                  label:
+                    language === 'FR'
+                      ? '3. Documents & Matrices'
+                      : '3. 22 Documents & Matrices'
+                },
+                {
+                  id: 'section-cibles',
+                  label:
+                    language === 'FR'
+                      ? '4. Publics Cibles & Domaines'
+                      : '4. Target Audiences & Sectors'
+                },
+                {
+                  id: 'section-offres',
+                  label:
+                    language === 'FR'
+                      ? '5. Offres Commerciales'
+                      : '5. Commercial Plans'
+                },
+                {
+                  id: 'section-methodologie',
+                  label:
+                    language === 'FR'
+                      ? '6. Méthodologie GAR & PERT'
+                      : '6. RBM & PERT Methodology'
+                },
+                {
+                  id: 'section-sauvegarde',
+                  label:
+                    language === 'FR'
+                      ? '7. Sauvegarde JSON'
+                      : '7. JSON Backup'
+                },
+                {
+                  id: 'section-credits',
+                  label:
+                    language === 'FR'
+                      ? '8. Crédits & Légal'
+                      : '8. Credits & Legal'
+                }
+              ].map(sec => {
+                const isActiveSec = activeHomeSection === sec.id;
+                return (
+                  <button
+                    key={sec.id}
+                    ref={el => {
+                      homeNavBtnRefs.current[sec.id] = el;
+                    }}
+                    type="button"
+                    aria-current={isActiveSec ? 'location' : undefined}
+                    onClick={() => {
+                      setActiveHomeSection(sec.id);
+                      const el = document.getElementById(sec.id);
+                      if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }
+                    }}
+                    className={`px-3 sm:px-3.5 py-1.5 rounded-lg text-[10px] sm:text-xs font-extrabold tracking-tight whitespace-nowrap transition-all duration-300 cursor-pointer shrink-0 flex items-center gap-1.5 ${
+                      isActiveSec
+                        ? 'bg-[#90D5FF] text-slate-950 border-2 border-white ring-2 ring-[#90D5FF]/70 shadow-lg scale-105'
+                        : 'bg-sky-900/60 hover:bg-[#90D5FF]/80 text-sky-100/80 hover:text-slate-950 border border-[#90D5FF]/30 hover:border-[#90D5FF] opacity-80 hover:opacity-100 scale-95'
+                    }`}
+                  >
+                    {isActiveSec && (
+                      <span className="w-2 h-2 rounded-full bg-[#0c4a6e] animate-pulse shrink-0" />
+                    )}
+                    <span>{sec.label}</span>
+                  </button>
+                );
+              })}
+              {/* Right spacer so the last section title can also position horizontally at the exact center of the navbar */}
+              <div
+                className="shrink-0 w-[36vw] sm:w-[40vw] lg:w-[42%]"
+                aria-hidden="true"
+              />
+            </div>
+          </nav>
+        )}
       </header>
+
+      {/* Compensating Spacer for Fixed Header (so content is never covered at the top) */}
+      <div
+        aria-hidden="true"
+        className={
+          !authUser || activeTab === 'accueil'
+            ? 'h-[98px] sm:h-[106px] shrink-0 no-print'
+            : 'hidden md:block md:h-[62px] shrink-0 no-print'
+        }
+      />
 
       {/* MAIN CONTENT AREA */}
       <main
         className={`flex-1 max-w-7xl w-full mx-auto px-2 sm:px-6 ${
-          activeTab === 'accueil' ? 'pt-3 md:pt-5' : 'pt-14 md:pt-5'
+          !authUser || activeTab === 'accueil' ? 'pt-3 md:pt-5' : 'pt-14 md:pt-5'
         } pb-4`}
       >
-        {activeTab === 'accueil' && (
+        {(!authUser || activeTab === 'accueil') && (
           <LandingPage
             isDark={theme === 'dark'}
             language={language}
             lastJsonFileName={lastJsonFileName}
-            onOpenSlidebar={() => setIsSlidebarOpen(true)}
+            onOpenSlidebar={() => {
+              if (authUser) {
+                setIsSlidebarOpen(true);
+              } else {
+                handleGoogleSignIn();
+              }
+            }}
             onNavigateTab={navigateTo}
           />
         )}
 
-        {activeTab === 'profil' && (
+        {authUser && activeTab === 'profil' && (
           <UserProfileView
             userProfile={userProfile}
             setUserProfile={setUserProfile}
@@ -2097,12 +3594,13 @@ export function App() {
           />
         )}
 
-        {activeTab === 'projects' && (
+        {authUser && activeTab === 'projects' && (
           <DossiersAndProjectsView
             dossiers={dossiers}
             activeDossier={activeDossier}
             setActiveDossierId={setActiveDossierId}
             onCreateDossier={createDossierDirect}
+            onUpdateDossier={handleUpdateDossier}
             onDeleteDossier={handleDeleteDossier}
             onAddAxe={handleAddAxe}
             onUpdateAxeName={handleUpdateAxeName}
@@ -2116,9 +3614,9 @@ export function App() {
           />
         )}
 
-        {activeTab === 'dashboard' && renderDashboardView()}
+        {authUser && activeTab === 'dashboard' && renderDashboardView()}
 
-        {activeTab === 'gantt' && (
+        {authUser && activeTab === 'gantt' && (
           <GanttAndTreeView
             dossier={activeDossier}
             currency={currency}
@@ -2127,12 +3625,14 @@ export function App() {
             setFilterAxeId={setFilterAxeId}
             filterProjectId={filterProjectId}
             setFilterProjectId={setFilterProjectId}
+            onUpdateTask={handleUpdateTask}
           />
         )}
 
-        {(activeTab === 'planification' ||
-          activeTab === 'processus' ||
-          activeTab === 'raci') && (
+        {authUser &&
+          (activeTab === 'planification' ||
+            activeTab === 'processus' ||
+            activeTab === 'raci') && (
           <OperationalMatrices
             mode={activeTab as 'planification' | 'processus' | 'raci'}
             dossier={activeDossier}
@@ -2154,11 +3654,46 @@ export function App() {
           />
         )}
 
-        {activeTab === 'pert' && renderPertView()}
+        {authUser && activeTab === 'categorie' && (
+          <CategoriesActorsView
+            dossier={activeDossier}
+            dossiers={dossiers}
+            onSelectDossier={setActiveDossierId}
+            userProfile={userProfile}
+            onUpdateUserProfile={setUserProfile}
+            language={language}
+            filterAxeId={filterAxeId}
+            setFilterAxeId={setFilterAxeId}
+            filterProjectId={filterProjectId}
+            setFilterProjectId={setFilterProjectId}
+            onUpdateCategorizedActors={handleUpdateCategorizedActors}
+            onRenameActorInRaci={(oldName, newName) => {
+              updateActiveDossier(d =>
+                renameActorInDossierTasks(d, oldName, newName)
+              );
+            }}
+            onApplyProfileToDoc={(docType, fields) => {
+              Object.entries(fields).forEach(([k, v]) => {
+                if (v !== undefined) {
+                  handleUpdateDocField(
+                    docType,
+                    k as keyof CustomDocFields,
+                    String(v)
+                  );
+                }
+              });
+            }}
+            onNavigateToDocGen={() => {
+              navigateTo('docgen');
+            }}
+          />
+        )}
 
-        {activeTab === 'kanban' && renderKanbanView()}
+        {authUser && activeTab === 'pert' && renderPertView()}
 
-        {activeTab === 'fiche' && (
+        {authUser && activeTab === 'kanban' && renderKanbanView()}
+
+        {authUser && activeTab === 'fiche' && (
           <FicheTechniquePages
             dossier={activeDossier}
             userProfile={userProfile}
@@ -2167,13 +3702,13 @@ export function App() {
           />
         )}
 
-        {activeTab === 'docgen' && (
+        {authUser && activeTab === 'docgen' && (
           <DocumentGeneratorView
             dossier={activeDossier}
             userProfile={userProfile}
             currency={currency}
             language={language}
-            customDocsData={customDocsData}
+            customDocsData={activeProgramCustomDocsData}
             onUpdateDocField={handleUpdateDocField}
             onResetDocDefaults={handleResetDocDefaults}
             filterAxeId={filterAxeId}
@@ -2184,8 +3719,70 @@ export function App() {
         )}
       </main>
 
-      {/* INSTITUTIONAL FOOTER — ONLY ON HOME PAGE (accueil) */}
-      {activeTab === 'accueil' && (
+      {/* Modale Fiche Acteur Interne ouverte depuis l'onglet Catégorie */}
+      {authUser && isCategoryProfileModalOpen && (
+        <InternalActorProfileModal
+          isOpen={isCategoryProfileModalOpen}
+          onClose={() => setIsCategoryProfileModalOpen(false)}
+          initialActorName={selectedCategoryActorName}
+          allActorsList={activeRaciContext.internalOnlyActors}
+          raciContextInfo={{
+            rList: activeRaciContext.rList,
+            aList: activeRaciContext.aList,
+            cList: activeRaciContext.cList,
+            iList: activeRaciContext.iList
+          }}
+          dossier={activeDossier}
+          userProfile={userProfile}
+          language={language}
+          currency={currency}
+          executingOrgName={
+            activeDossier.institution ||
+            userProfile.institution ||
+            'Organisation Pilote du Programme'
+          }
+          executingDepartment="Direction du Pilotage Stratégique & PMO"
+          onApplyToDoc={(docType, fields) => {
+            Object.entries(fields).forEach(([k, v]) => {
+              if (v !== undefined) {
+                handleUpdateDocField(docType, k as keyof CustomDocFields, v);
+              }
+            });
+          }}
+          onSelectDocType={docType => {
+            navigateTo('docgen');
+          }}
+        />
+      )}
+
+      {/* Modale Globale Scanner QR Code & Code-Barres (Contrôle d'Accès Interne & vCard) */}
+      {authUser && isGlobalScannerOpen && (
+        <QrBarcodeScannerModal
+          isOpen={isGlobalScannerOpen}
+          onClose={() => setIsGlobalScannerOpen(false)}
+          dossier={activeDossier}
+          userProfile={userProfile}
+          language={language}
+        />
+      )}
+
+      {/* Modale de Diagnostic Domaine Firebase non autorisé & Popups bloquées */}
+      {isAuthHelpModalOpen && (
+        <FirebaseAuthHelpModal
+          isOpen={isAuthHelpModalOpen}
+          onClose={() => setIsAuthHelpModalOpen(false)}
+          onRetryGooglePopup={() => {
+            setIsAuthHelpModalOpen(false);
+            handleGoogleSignIn();
+          }}
+          errorCode={authErrorCode}
+          errorMessage={authErrorMessage}
+          language={language}
+        />
+      )}
+
+      {/* INSTITUTIONAL FOOTER — ONLY ON HOME PAGE (accueil) OR WHEN UNCONNECTED */}
+      {(!authUser || activeTab === 'accueil') && (
         <footer className="bg-[#0c4a6e] text-white border-t-4 border-[#90D5FF] mt-12">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -2194,23 +3791,76 @@ export function App() {
               </div>
               <div>
                 <div className="text-sm font-black uppercase tracking-wider text-white">
-                  FAAB PLAN — PILOTAGE STRATÉGIQUE & OPÉRATIONNEL
+                  {language === 'EN'
+                    ? 'FAAB PLAN — STRATEGIC & OPERATIONAL STEERING'
+                    : 'FAAB PLAN — PILOTAGE STRATÉGIQUE & OPÉRATIONNEL'}
                 </div>
                 <div className="text-xs text-[#90D5FF]">
-                  Créateur & Architecte Principal : KOFFIE FABIEN MICHAEL
+                  {language === 'EN'
+                    ? 'Creator & Lead Architect: KOFFIE FABIEN MICHAEL'
+                    : 'Créateur & Architecte Principal : KOFFIE FABIEN MICHAEL'}
                 </div>
                 <div className="text-[11px] text-sky-200 mt-0.5">
-                  Persistance Locale IndexedDB • Sauvegarde JSON • Exports PDF A4 Fond Blanc Pur
+                  {language === 'EN'
+                    ? 'Local IndexedDB Persistence • JSON Backup • Pure White A4 PDF Exports'
+                    : 'Persistance Locale IndexedDB • Sauvegarde JSON • Exports PDF A4 Fond Blanc Pur'}
                 </div>
               </div>
             </div>
 
-            <div className="text-center sm:text-right text-xs text-sky-200">
-              <div className="font-bold text-white">
-                © {new Date().getFullYear()} FAAB PLAN • Tous droits réservés
+            <div className="flex flex-col sm:items-end items-center gap-2.5 text-center sm:text-right text-xs text-sky-200">
+              {/* Language & Currency Selectors in Footer of Homepage */}
+              <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2">
+                <div className="flex items-center gap-2 bg-sky-950/80 border border-[#90D5FF]/50 rounded-xl px-3 py-1.5 shadow-sm">
+                  <Globe className="w-4 h-4 text-[#90D5FF] shrink-0" />
+                  <label
+                    htmlFor="footer-language-select"
+                    className="text-[11px] font-bold uppercase tracking-wider text-[#90D5FF]"
+                  >
+                    {language === 'EN' ? 'Language :' : 'Langue :'}
+                  </label>
+                  <select
+                    id="footer-language-select"
+                    value={language}
+                    onChange={e => setLanguage(e.target.value as LanguageCode)}
+                    className="bg-[#0c4a6e] text-white text-xs font-extrabold px-2 py-0.5 rounded-lg border border-[#90D5FF]/60 focus:outline-none focus:ring-2 focus:ring-[#90D5FF] cursor-pointer"
+                  >
+                    <option value="FR">Français (FR)</option>
+                    <option value="EN">English (EN)</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2 bg-sky-950/80 border border-[#90D5FF]/50 rounded-xl px-3 py-1.5 shadow-sm">
+                  <DollarSign className="w-4 h-4 text-[#90D5FF] shrink-0" />
+                  <label
+                    htmlFor="footer-currency-select"
+                    className="text-[11px] font-bold uppercase tracking-wider text-[#90D5FF]"
+                  >
+                    {language === 'EN' ? 'Currency :' : 'Devise :'}
+                  </label>
+                  <select
+                    id="footer-currency-select"
+                    value={currency}
+                    onChange={e => setCurrency(e.target.value as CurrencyCode)}
+                    className="bg-[#0c4a6e] text-white text-xs font-extrabold px-2 py-0.5 rounded-lg border border-[#90D5FF]/60 focus:outline-none focus:ring-2 focus:ring-[#90D5FF] cursor-pointer"
+                  >
+                    <option value="FCFA">FCFA (XOF)</option>
+                    <option value="EUR">Euro (€ - EUR)</option>
+                    <option value="USD">Dollar ($ - USD)</option>
+                  </select>
+                </div>
               </div>
-              <div className="text-[11px] text-[#90D5FF]">
-                Application Web Universelle & Multi-Projets
+
+              <div>
+                <div className="font-bold text-white">
+                  © {new Date().getFullYear()} FAAB PLAN •{' '}
+                  {language === 'EN' ? 'All rights reserved' : 'Tous droits réservés'}
+                </div>
+                <div className="text-[11px] text-[#90D5FF]">
+                  {language === 'EN'
+                    ? 'Universal & Multi-Project Web Application'
+                    : 'Application Web Universelle & Multi-Projets'}
+                </div>
               </div>
             </div>
           </div>

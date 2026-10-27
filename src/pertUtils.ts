@@ -27,25 +27,94 @@ export function addDaysISO(dateStr: string, days: number): string {
 }
 
 /**
- * Statut automatique fonction de la date d'aujourd'hui et des dates d'exécution,
- * sauf si la tâche est marquée "Bloqué" (seul statut modifiable manuellement dans Suivi des tâches).
+ * Normalise les dates d'exécution réelles (Déb. Exéc et Fin Exéc) en fonction de la date d'aujourd'hui :
+ * - Aucune date d'exécution ne peut être postérieure à todayISO.
+ * - Dès que Déb. Exéc et Fin Exéc sont renseignées (<= todayISO), la tâche a le statut "Terminé".
+ * - Si la tâche est "Bloqué", Déb. Exéc peut s'afficher mais Fin Exéc ne doit pas s'afficher.
+ * - Si la tâche est "En cours", Déb. Exéc peut s'afficher mais Fin Exéc ne peut pas s'afficher.
+ * - Si la tâche a pour statut "À faire", aucune date ne peut s'afficher dans Déb. Exéc et Fin Exéc.
+ */
+export function getNormalizedExecutionDates(
+  task: Task,
+  todayISO: string = getTodayISO()
+): { actualStart: string; actualEnd: string } {
+  const rawStart =
+    task.actualStartDate &&
+    task.actualStartDate.trim() !== '' &&
+    task.actualStartDate.trim() <= todayISO
+      ? task.actualStartDate.trim()
+      : '';
+  const rawEnd =
+    task.actualEndDate &&
+    task.actualEndDate.trim() !== '' &&
+    task.actualEndDate.trim() <= todayISO
+      ? task.actualEndDate.trim()
+      : '';
+
+  const fallbackStartedByToday =
+    task.startDate &&
+    task.startDate.trim() !== '' &&
+    task.startDate.trim() <= todayISO &&
+    task.status !== 'À faire'
+      ? task.startDate.trim()
+      : '';
+
+  const effectiveStart = rawStart || fallbackStartedByToday;
+
+  // Dès que Déb. Exéc et Fin Exéc sont toutes deux renseignées (<= todayISO), la tâche est Terminée
+  if (effectiveStart && rawEnd) {
+    return {
+      actualStart: effectiveStart,
+      actualEnd: rawEnd >= effectiveStart ? rawEnd : effectiveStart
+    };
+  }
+
+  // Si la tâche est bloquée, Déb. Exéc peut s'afficher mais Fin Exéc ne doit pas s'afficher
+  if (task.manualBlocked || task.status === 'Bloqué') {
+    return {
+      actualStart: effectiveStart,
+      actualEnd: ''
+    };
+  }
+
+  // Si la tâche est En cours (commencée mais pas encore terminée), Déb. Exéc s'affiche mais Fin Exéc ne s'affiche pas
+  if (effectiveStart) {
+    return {
+      actualStart: effectiveStart,
+      actualEnd: ''
+    };
+  }
+
+  // Si la tâche a pour statut "À faire", aucune date ne s'affiche dans Déb. Exéc et Fin Exéc
+  return {
+    actualStart: '',
+    actualEnd: ''
+  };
+}
+
+/**
+ * Statut automatique fonction de la date d'aujourd'hui et des dates d'exécution (Déb. Exéc / Fin Exéc).
  */
 export function computeEffectiveStatus(task: Task, todayISO: string = getTodayISO()): Task['status'] {
+  const { actualStart, actualEnd } = getNormalizedExecutionDates(task, todayISO);
+
+  // Dès que Déb. Exéc et Fin Exéc d'une tâche sont renseignées (<= todayISO), la tâche marque le statut "Terminé"
+  if (actualStart && actualEnd) {
+    return 'Terminé';
+  }
+
   if (task.manualBlocked || task.status === 'Bloqué') {
     return 'Bloqué';
   }
-  const hasActualEnd = Boolean(task.actualEndDate && task.actualEndDate.trim() !== '');
-  const hasActualStart = Boolean(task.actualStartDate && task.actualStartDate.trim() !== '');
 
-  if (hasActualEnd) {
-    return 'Terminé';
-  }
-  if (hasActualStart) {
+  if (actualStart) {
     return 'En cours';
   }
-  if (task.startDate && todayISO >= task.startDate) {
+
+  if (task.startDate && todayISO >= task.startDate && task.status !== 'À faire') {
     return 'En cours';
   }
+
   return 'À faire';
 }
 
@@ -59,10 +128,24 @@ export interface TaskComputedMetrics {
   ecartFinDays: number;
   ecartFinLabel: string;
   effectiveStatus: Task['status'];
+  effectiveActualStartDate: string;
+  effectiveActualEndDate: string;
 }
 
 export function computeTaskMetrics(task: Task, todayISO: string = getTodayISO()): TaskComputedMetrics {
   const effectiveStatus = computeEffectiveStatus(task, todayISO);
+  const { actualStart, actualEnd } = getNormalizedExecutionDates(task, todayISO);
+
+  // Règles d'affichage strictes selon le statut effectif :
+  // - "À faire" : ni Déb. Exéc ni Fin Exéc ne peuvent s'afficher
+  // - "En cours" : Déb. Exéc peut s'afficher, Fin Exéc ne peut pas s'afficher
+  // - "Bloqué" : Déb. Exéc peut s'afficher, Fin Exéc ne doit pas s'afficher
+  // - "Terminé" : Déb. Exéc et Fin Exéc s'affichent (<= todayISO)
+  const effectiveActualStartDate =
+    effectiveStatus === 'À faire' ? '' : actualStart;
+  const effectiveActualEndDate =
+    effectiveStatus === 'Terminé' ? actualEnd : '';
+
   const todayMs = new Date(todayISO).getTime();
   const startPrevMs = new Date(task.startDate).getTime();
   const endPrevMs = new Date(task.endDate).getTime();
@@ -76,8 +159,12 @@ export function computeTaskMetrics(task: Task, todayISO: string = getTodayISO())
 
   const plannedDurationLabel = `${plannedDurationDays}j`;
 
-  const actStartMs = task.actualStartDate ? new Date(task.actualStartDate).getTime() : NaN;
-  const actEndMs = task.actualEndDate ? new Date(task.actualEndDate).getTime() : NaN;
+  const actStartMs = effectiveActualStartDate
+    ? new Date(effectiveActualStartDate).getTime()
+    : NaN;
+  const actEndMs = effectiveActualEndDate
+    ? new Date(effectiveActualEndDate).getTime()
+    : NaN;
 
   // Durée réelle d'exécution
   let realDurationDays: number | null = null;
@@ -130,7 +217,9 @@ export function computeTaskMetrics(task: Task, todayISO: string = getTodayISO())
     ecartDebutLabel: formatEcart(ecartDebutDays),
     ecartFinDays,
     ecartFinLabel: formatEcart(ecartFinDays),
-    effectiveStatus
+    effectiveStatus,
+    effectiveActualStartDate,
+    effectiveActualEndDate
   };
 }
 

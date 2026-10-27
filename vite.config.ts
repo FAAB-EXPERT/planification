@@ -47,8 +47,8 @@ export default defineConfig(() => {
             fs.cpSync(distDir, docsDir, { recursive: true, force: true });
           }
 
-          // Copy static root icons/.nojekyll so "/ (root)" mode also resolves ./logo.png and .nojekyll
-          for (const file of ['logo.png', 'logo.svg', 'favicon.svg', '.nojekyll']) {
+          // Copy static root icons/.nojekyll so "/ (root)" mode also resolves ./logo.png, ./favicon.png, ./favicon.svg and .nojekyll
+          for (const file of ['logo.png', 'favicon.png', 'logo.svg', 'favicon.svg', '.nojekyll']) {
             const srcFile = path.join(publicDir, file);
             const destFile = path.join(rootDir, file);
             if (fs.existsSync(srcFile)) {

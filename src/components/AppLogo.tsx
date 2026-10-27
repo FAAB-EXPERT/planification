@@ -11,8 +11,9 @@ export const AppLogo: React.FC<AppLogoProps> = ({
 }) => {
   const [srcIndex, setSrcIndex] = useState(0);
   const sources = [
-    './logo.png',
-    './assets/aistudio/logo_de_Faab_Plan_aa9d6e11.png'
+    './logo.png?v=3',
+    './favicon.png?v=3',
+    './assets/aistudio/logo_de_Faab_Plan_aa9d6e11.png?v=3'
   ];
 
   if (srcIndex < sources.length) {
@@ -36,28 +37,23 @@ export const AppLogo: React.FC<AppLogoProps> = ({
       role="img"
       aria-label={alt}
     >
-      <rect x="28" y="42" width="184" height="170" rx="28" fill="#1e3a5f" stroke="#90D5FF" strokeWidth="8" />
-      <rect x="44" y="84" width="152" height="112" rx="16" fill="#FFFFFF" />
-      <rect x="68" y="22" width="22" height="38" rx="10" fill="#1e3a5f" stroke="#90D5FF" strokeWidth="4" />
-      <rect x="150" y="22" width="22" height="38" rx="10" fill="#1e3a5f" stroke="#90D5FF" strokeWidth="4" />
+      <rect x="6" y="28" width="228" height="206" rx="32" fill="#133361" />
+      <rect x="26" y="88" width="188" height="122" rx="14" fill="#FFFFFF" />
+      <rect x="38" y="4" width="28" height="58" rx="14" fill="#133361" stroke="#FFFFFF" strokeWidth="6" />
+      <rect x="88" y="4" width="28" height="58" rx="14" fill="#133361" stroke="#FFFFFF" strokeWidth="6" />
+      <rect x="138" y="4" width="28" height="58" rx="14" fill="#133361" stroke="#FFFFFF" strokeWidth="6" />
+      <rect x="188" y="4" width="28" height="58" rx="14" fill="#133361" stroke="#FFFFFF" strokeWidth="6" />
       <text
         x="120"
-        y="128"
-        fontFamily="Plus Jakarta Sans, Arial, sans-serif"
-        fontSize="30"
+        y="166"
+        fontFamily="Plus Jakarta Sans, Arial Black, sans-serif"
+        fontSize="48"
         fontWeight="900"
-        fill="#1e3a5f"
+        fill="#133361"
         textAnchor="middle"
       >
         F-PLAN
       </text>
-      <path
-        d="M104 166 L118 180 L152 144"
-        stroke="#0284c7"
-        strokeWidth="12"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
     </svg>
   );
 };

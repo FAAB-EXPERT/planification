@@ -1,4 +1,5 @@
 import {
+  CategorizedActor,
   CurrencyCode,
   CustomDocFields,
   Dossier,
@@ -14,6 +15,8 @@ import {
   getTodayISO
 } from './pertUtils';
 import { StructuredA4Table } from './docTemplates';
+import { ensureDossierCategorizedActors } from './db';
+
 
 export type MasterMatrixId =
   | 'M1'
@@ -166,9 +169,16 @@ export const MASTER_MATRICES_DEFINITIONS: MasterMatrixDefinition[] = [
       'grille_evaluation',
       'rapport_final',
       'cv_executif',
-      'cv_detaille'
+      'cv_detaille',
+      'ptba',
+      'slides_tdr',
+      'slides_cadrage',
+      'slides_demarrage',
+      'slides_ptba',
+      'slides_mi_parcours',
+      'slides_evaluation_finale'
     ],
-    associatedDocsLabels: 'Docs 3 (Note Méthodo), 5 (Cadrage), 6 (Démarrage), 7 (CAP), 8 (Mi-Parcours), 9 (Grille OCDE), 11 (Final), 12 (CV Exécutif), 13 (CV Détaillé)',
+    associatedDocsLabels: 'Docs 3 (Note Méthodo), 5 (Cadrage), 6 (Démarrage), 7 (CAP), 8 (Mi-Parcours), 9 (Grille OCDE), 11 (Final), 12 (CV Exécutif), 13 (CV Détaillé), PTBA, Slides 16 à 22',
     columns: [
       { key: 'Code_Resultat', label: '1. Code_Resultat', inputType: 'text', placeholder: 'Ex: IMP-1, EFF-1, EXT-1.1', minWidthPx: 105 },
       {
@@ -218,9 +228,18 @@ export const MASTER_MATRICES_DEFINITIONS: MasterMatrixDefinition[] = [
       'cap',
       'mi_parcours',
       'rapport_final',
-      'tdr_simplifie'
+      'tdr_simplifie',
+      'ptba',
+      'ptt',
+      'slides_tdr',
+      'slides_cadrage',
+      'slides_demarrage',
+      'slides_ptba',
+      'slides_ptt',
+      'slides_mi_parcours',
+      'slides_evaluation_finale'
     ],
-    associatedDocsLabels: 'Docs 2 (TDR), 3 (Note Méthodo), 4 (Lettre Mission), 5 (Cadrage), 6 (Démarrage), 7 (CAP), 8 (Mi-Parcours), 11 (Final), 15 (TDR Simplifiés)',
+    associatedDocsLabels: 'Docs 2 (TDR), 3 (Note Méthodo), 4 (Lettre Mission), 5 (Cadrage), 6 (Démarrage), 7 (CAP), 8 (Mi-Parcours), 11 (Final), 15 (TDR Simplifiés), PTBA, PTT, Slides 16 à 22',
     columns: [
       { key: 'Code_WBS', label: '1. Code_WBS', inputType: 'text', placeholder: 'Ex: 1.1, T.1.1', minWidthPx: 95 },
       { key: 'Phase_Lot', label: '2. Phase_Lot', inputType: 'text', placeholder: 'Ex: AVANT PROJET', minWidthPx: 145 },
@@ -272,9 +291,16 @@ export const MASTER_MATRICES_DEFINITIONS: MasterMatrixDefinition[] = [
       'nda',
       'cv_executif',
       'cv_detaille',
-      'tdr_simplifie'
+      'tdr_simplifie',
+      'ptba',
+      'ptt',
+      'slides_tdr',
+      'slides_cadrage',
+      'slides_demarrage',
+      'slides_ptba',
+      'slides_ptt'
     ],
-    associatedDocsLabels: 'Docs 2 (TDR), 3 (Note Méthodo), 4 (Lettre Mission), 5 (Cadrage), 6 (Démarrage), 10 (NDA), 12 (CV Exécutif), 13 (CV Détaillé), 15 (TDR Simplifiés)',
+    associatedDocsLabels: 'Docs 2 (TDR), 3 (Note Méthodo), 4 (Lettre Mission), 5 (Cadrage), 6 (Démarrage), 10 (NDA), 12 (CV Exécutif), 13 (CV Détaillé), 15 (TDR Simplifiés), PTBA, PTT, Slides 16 à 20',
     columns: [
       { key: 'Code_Acteur_Lot', label: '1. Code_Acteur_Lot', inputType: 'text', placeholder: 'Ex: EXP-01 / T.1.1', minWidthPx: 110 },
       { key: 'Domaine_Livrable_Activite', label: '2. Domaine_Livrable_Activite', inputType: 'textarea', placeholder: 'Activité ou lot sous responsabilité...', minWidthPx: 210 },
@@ -300,9 +326,13 @@ export const MASTER_MATRICES_DEFINITIONS: MasterMatrixDefinition[] = [
       'grille_evaluation',
       'nda',
       'rapport_final',
-      'pv_reunion'
+      'pv_reunion',
+      'ptba',
+      'slides_cadrage',
+      'slides_demarrage',
+      'slides_ptba'
     ],
-    associatedDocsLabels: 'Docs 5 (Cadrage), 6 (Démarrage), 9 (Grille OCDE), 10 (NDA), 11 (Final), 14 (PV de Réunion)',
+    associatedDocsLabels: 'Docs 5 (Cadrage), 6 (Démarrage), 9 (Grille OCDE), 10 (NDA), 11 (Final), 14 (PV de Réunion), PTBA, Slides 17, 18, 19',
     columns: [
       { key: 'Code_PP', label: '1. Code_PP', inputType: 'text', placeholder: 'Ex: PP-01', minWidthPx: 95 },
       { key: 'Nom_Institution_Groupe', label: '2. Nom_Institution_Groupe', inputType: 'text', placeholder: 'Nom de l’institution ou groupe...', minWidthPx: 185 },
@@ -311,15 +341,20 @@ export const MASTER_MATRICES_DEFINITIONS: MasterMatrixDefinition[] = [
         label: '3. Categorie_Acteur',
         inputType: 'select',
         options: [
+          'Bénéficiaires',
+          'Interne',
+          'Externe',
+          'Prestataire',
+          'Partenaire Financier',
           'Commanditaire',
           'Bailleur',
           "Agence d'exécution",
-          'Bénéficiaires',
           'Autorité locale',
           'Société civile'
         ],
         minWidthPx: 160
       },
+
       { key: 'Role_Dans_Projet', label: '4. Role_Dans_Projet', inputType: 'textarea', placeholder: 'Rôle et prérogatives dans le projet...', minWidthPx: 195 },
       { key: 'Niveau_Pouvoir_1_5', label: '5. Niveau_Pouvoir (1-5)', inputType: 'select', options: ['5', '4', '3', '2', '1'], minWidthPx: 115, isRightAligned: true },
       { key: 'Niveau_Interet_1_5', label: '6. Niveau_Interet (1-5)', inputType: 'select', options: ['5', '4', '3', '2', '1'], minWidthPx: 115, isRightAligned: true },
@@ -344,9 +379,18 @@ export const MASTER_MATRICES_DEFINITIONS: MasterMatrixDefinition[] = [
       'rapport_final',
       'cv_executif',
       'cv_detaille',
-      'tdr_simplifie'
+      'tdr_simplifie',
+      'ptba',
+      'ptt',
+      'slides_tdr',
+      'slides_cadrage',
+      'slides_demarrage',
+      'slides_ptba',
+      'slides_ptt',
+      'slides_mi_parcours',
+      'slides_evaluation_finale'
     ],
-    associatedDocsLabels: 'Docs 2 (TDR), 4 (Lettre Mission), 5 (Cadrage), 6 (Démarrage), 7 (CAP), 8 (Mi-Parcours), 11 (Final), 12 (CV Exécutif), 13 (CV Détaillé), 15 (TDR Simplifiés)',
+    associatedDocsLabels: 'Docs 2 (TDR), 4 (Lettre Mission), 5 (Cadrage), 6 (Démarrage), 7 (CAP), 8 (Mi-Parcours), 11 (Final), 12 (CV Exécutif), 13 (CV Détaillé), 15 (TDR Simplifiés), PTBA, PTT, Slides 16 à 22',
     columns: [
       { key: 'Code_Ligne_Budget', label: '1. Code_Ligne_Budget', inputType: 'text', placeholder: 'Ex:LB-01', minWidthPx: 110 },
       { key: 'Rubrique_Activite_PTBA', label: '2. Rubrique_Activite_PTBA', inputType: 'textarea', placeholder: 'Intitulé de la ligne budgétaire PTBA...', minWidthPx: 210 },
@@ -394,9 +438,13 @@ export const MASTER_MATRICES_DEFINITIONS: MasterMatrixDefinition[] = [
       'note_methodo',
       'mi_parcours',
       'grille_evaluation',
-      'rapport_final'
+      'rapport_final',
+      'slides_cadrage',
+      'slides_demarrage',
+      'slides_mi_parcours',
+      'slides_evaluation_finale'
     ],
-    associatedDocsLabels: 'Docs 3 (Note Méthodo), 8 (Mi-Parcours), 9 (Grille OCDE), 11 (Final)',
+    associatedDocsLabels: 'Docs 3 (Note Méthodo), 8 (Mi-Parcours), 9 (Grille OCDE), 11 (Final), Slides 17, 18, 21, 22',
     columns: [
       { key: 'Code_QE', label: '1. Code_QE', inputType: 'text', placeholder: 'Ex: QE-1.1', minWidthPx: 95 },
       {
@@ -438,9 +486,17 @@ export const MASTER_MATRICES_DEFINITIONS: MasterMatrixDefinition[] = [
       'grille_evaluation',
       'nda',
       'rapport_final',
-      'pv_reunion'
+      'pv_reunion',
+      'ptba',
+      'ptt',
+      'slides_cadrage',
+      'slides_demarrage',
+      'slides_ptba',
+      'slides_ptt',
+      'slides_mi_parcours',
+      'slides_evaluation_finale'
     ],
-    associatedDocsLabels: 'Docs 3 (Note Méthodo), 5 (Cadrage), 6 (Démarrage), 7 (CAP), 8 (Mi-Parcours), 9 (Grille OCDE), 10 (NDA), 11 (Final), 14 (PV de Réunion)',
+    associatedDocsLabels: 'Docs 3 (Note Méthodo), 5 (Cadrage), 6 (Démarrage), 7 (CAP), 8 (Mi-Parcours), 9 (Grille OCDE), 10 (NDA), 11 (Final), 14 (PV de Réunion), PTBA, PTT, Slides 17 à 22',
     columns: [
       { key: 'Code_RAID', label: '1. Code_RAID', inputType: 'text', placeholder: 'Ex: R-01, I-02', minWidthPx: 95 },
       {
@@ -495,8 +551,8 @@ export const MASTER_MATRICES_DEFINITIONS: MasterMatrixDefinition[] = [
     fullTitle: 'MATRICE M8 : PLAN DE PASSATION DES MARCHÉS (PPM) & LOGISTIQUE',
     normativeRef: 'Directives de Passation des Marchés Banque Mondiale / BAD / UE & Code des Marchés Publics',
     txtVariable: '[TXT_MARCHES_PPM_M8]',
-    associatedDocs: ['cadrage', 'mi_parcours', 'rapport_final'],
-    associatedDocsLabels: 'Docs 5 (Cadrage / ProDoc), 8 (Mi-Parcours), 11 (Final)',
+    associatedDocs: ['cadrage', 'mi_parcours', 'rapport_final', 'ptba', 'slides_cadrage', 'slides_ptba', 'slides_mi_parcours', 'slides_evaluation_finale'],
+    associatedDocsLabels: 'Docs 5 (Cadrage / ProDoc), 8 (Mi-Parcours), 11 (Final), PTBA, Slides 17, 19, 21, 22',
     columns: [
       { key: 'Code_Marche', label: '1. Code_Marche', inputType: 'text', placeholder: 'Ex: PPM-2026-01', minWidthPx: 110 },
       { key: 'Designation_Acquisition', label: '2. Designation_Acquisition', inputType: 'textarea', placeholder: 'Intitulé du marché ou acquisition...', minWidthPx: 215 },
@@ -562,9 +618,18 @@ export const MASTER_MATRICES_DEFINITIONS: MasterMatrixDefinition[] = [
       'nda',
       'rapport_final',
       'cv_detaille',
-      'tdr_simplifie'
+      'tdr_simplifie',
+      'ptba',
+      'ptt',
+      'slides_tdr',
+      'slides_cadrage',
+      'slides_demarrage',
+      'slides_ptba',
+      'slides_ptt',
+      'slides_mi_parcours',
+      'slides_evaluation_finale'
     ],
-    associatedDocsLabels: 'Docs 2 (TDR), 4 (Lettre Mission), 5 (Cadrage), 6 (Démarrage), 7 (CAP), 8 (Mi-Parcours), 10 (NDA), 11 (Final), 13 (CV Détaillé), 15 (TDR Simplifiés)',
+    associatedDocsLabels: 'Docs 2 (TDR), 4 (Lettre Mission), 5 (Cadrage), 6 (Démarrage), 7 (CAP), 8 (Mi-Parcours), 10 (NDA), 11 (Final), 13 (CV Détaillé), 15 (TDR Simplifiés), PTBA, PTT, Slides 16 à 22',
     columns: [
       { key: 'Code_Livrable', label: '1. Code_Livrable', inputType: 'text', placeholder: 'Ex: LIV-01', minWidthPx: 100 },
       { key: 'Intitule_Livrable_Actif', label: '2. Intitule_Livrable_Actif', inputType: 'textarea', placeholder: 'Nom du livrable ou actif documentaire...', minWidthPx: 210 },
@@ -595,8 +660,8 @@ export const MASTER_MATRICES_DEFINITIONS: MasterMatrixDefinition[] = [
     fullTitle: "MATRICE M10 : CAPITALISATION, PLAN D'ACTION CORRECTIF (CAP) & RÉPONSE MANAGÉRIALE",
     normativeRef: 'Management Response Matrix (PNUD / UNEG / Banque Mondiale) & Prescriptions CAP',
     txtVariable: '[TXT_CAPITALISATION_M10]',
-    associatedDocs: ['cap', 'mi_parcours', 'rapport_final', 'pv_reunion'],
-    associatedDocsLabels: 'Docs 7 (Rapport CAP), 8 (Évaluation Mi-Parcours), 11 (Évaluation Finale & Clôture), 14 (PV de Réunion)',
+    associatedDocs: ['cap', 'mi_parcours', 'rapport_final', 'pv_reunion', 'slides_mi_parcours', 'slides_evaluation_finale'],
+    associatedDocsLabels: 'Docs 7 (Rapport CAP), 8 (Évaluation Mi-Parcours), 11 (Évaluation Finale & Clôture), 14 (PV de Réunion), Slides 21 & 22',
     columns: [
       { key: 'Code_Action_Rec', label: '1. Code_Action_Rec', inputType: 'text', placeholder: 'Ex: REC-01 / CAP-01', minWidthPx: 110 },
       { key: 'Constat_Ecart_Lecon_Identifiee', label: '2. Constat_Ecart_Lecon_Identifiee', inputType: 'textarea', placeholder: 'Constat factuel, écart ou leçon apprise...', minWidthPx: 215 },
@@ -639,7 +704,16 @@ export const DOC_TO_MATRICES_MAP: Record<InstitutionalDocType, MasterMatrixId[]>
   cv_executif: ['M3', 'M1', 'M5'], // Doc 12 : CV Professionnel Exécutif (1 page)
   cv_detaille: ['M3', 'M1', 'M5', 'M9'], // Doc 13 : CV Professionnel Détaillé Bailleurs (2 à 4 pages)
   pv_reunion: ['M4', 'M7', 'M10'], // Doc 14 : Procès-Verbal Officiel de Réunion (1 à 2 pages)
-  tdr_simplifie: ['M2', 'M3', 'M5', 'M9'] // Doc 15 : TDR Simplifiés avec Tableaux (1 à 3 pages)
+  tdr_simplifie: ['M2', 'M3', 'M5', 'M9'], // Doc 15 : TDR Simplifiés avec Tableaux (1 à 3 pages)
+  ptba: ['M1', 'M2', 'M3', 'M4', 'M5', 'M7', 'M8', 'M9'], // Doc 16 : Plan de Travail et Budget Annuel (PTBA - 8 matrices)
+  ptt: ['M2', 'M3', 'M5', 'M7', 'M9'], // Doc 17 : Plan de Travail Trimestriel (PTT - 5 matrices)
+  slides_tdr: ['M1', 'M2', 'M3', 'M5', 'M9'], // 16. Présentation du Programme (basée sur les TDR)
+  slides_cadrage: ['M1', 'M2', 'M3', 'M4', 'M5', 'M7', 'M8', 'M9'], // 17. Présentation du Rapport de Cadrage
+  slides_demarrage: ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M9'], // 18. Présentation du Rapport de Démarrage (Inception)
+  slides_ptba: ['M1', 'M2', 'M3', 'M4', 'M5', 'M7', 'M8', 'M9'], // 19. Présentation du PTBA (Plan de Travail et Budget Annuel)
+  slides_ptt: ['M2', 'M3', 'M5', 'M7', 'M9'], // 20. Présentation du PTT (Plan de Travail Trimestriel)
+  slides_mi_parcours: ['M1', 'M2', 'M5', 'M6', 'M7', 'M8', 'M9', 'M10'], // 21. Présentation de l'Évaluation à Mi-Parcours
+  slides_evaluation_finale: ['M1', 'M2', 'M4', 'M5', 'M6', 'M7', 'M8', 'M9', 'M10'] // 22. Présentation de l'Évaluation Finale & Clôture
 };
 
 export function getMatrixDefinition(id: MasterMatrixId): MasterMatrixDefinition {
@@ -661,33 +735,194 @@ export function createEmptyMatrixRow(matrixId: MasterMatrixId, index: number): M
   return computeMatrixRowCalculations(matrixId, row);
 }
 
+export interface ProgramRaciContext {
+  intervenesAsProgramActor: boolean;
+  hasRaciActors: boolean;
+  hasAnyRaciActor: boolean;
+  rActors: string[];
+  aActors: string[];
+  cActors: string[];
+  iActors: string[];
+  allRaciActors: string[];
+  rList: string[];
+  aList: string[];
+  cList: string[];
+  iList: string[];
+  allActors: string[];
+  internalOnlyActors: string[];
+  categorizedActors: CategorizedActor[];
+  effectiveLeadName: string;
+  effectiveLeadRole: string;
+  leadActorName: string;
+  leadActorRole: string;
+  effectiveAuthorityName: string;
+  effectiveConsultedList: string;
+  effectiveInformedList: string;
+  primaryR: string;
+  primaryA: string;
+  primaryC: string;
+  primaryI: string;
+}
+
+/**
+ * Analyse les acteurs renseignés dans l'onglet RACI et l'onglet Catégorie du programme sélectionné.
+ * - S'il n'y a aucun acteur renseigné dans RACI, ce sont les informations du Profil Utilisateur qui s'affichent par défaut.
+ * - Fournit également la liste stricte des acteurs classés « Interne » pour le filtrage exclusif des CV, Cartes de Visite et Badges.
+ */
+export function resolveProgramRaciContext(
+  dossier: Dossier,
+  userProfile: UserProfile
+): ProgramRaciContext {
+  const isNeantVal = (v?: string): boolean => {
+    const clean = (v || '').trim().toLowerCase();
+    return clean === 'néant' || clean === 'neant' || clean === 'none';
+  };
+
+  const splitActors = (raw?: string): string[] => {
+    if (!raw) return [];
+    return raw
+      .split(',')
+      .map(s => s.trim())
+      .filter(s => s.length > 0 && s !== '—' && !isNeantVal(s));
+  };
+
+  const rSet = new Set<string>();
+  const aSet = new Set<string>();
+  const cSet = new Set<string>();
+  const iSet = new Set<string>();
+
+  (dossier.axes || []).forEach(axe => {
+    (axe.projects || []).forEach(proj => {
+      (proj.tasks || []).forEach(tk => {
+        splitActors(tk.raciR || tk.responsabilite || tk.assignee).forEach(x =>
+          rSet.add(x)
+        );
+        splitActors(tk.raciA || tk.autorite).forEach(x => aSet.add(x));
+        splitActors(tk.raciC || tk.consulte).forEach(x => cSet.add(x));
+        splitActors(tk.raciI || tk.informe).forEach(x => iSet.add(x));
+      });
+    });
+  });
+
+  const categorizedActors = ensureDossierCategorizedActors(dossier, userProfile);
+  categorizedActors.forEach(catAct => {
+    if (catAct.raciRoles?.includes('R')) rSet.add(catAct.name);
+    if (catAct.raciRoles?.includes('A')) aSet.add(catAct.name);
+    if (catAct.raciRoles?.includes('C')) cSet.add(catAct.name);
+    if (catAct.raciRoles?.includes('I')) iSet.add(catAct.name);
+  });
+
+  const internalOnlySet = new Set<string>();
+  categorizedActors
+    .filter(a => a.category === 'Interne')
+    .forEach(a => internalOnlySet.add(a.name));
+  const internalOnlyActors = Array.from(internalOnlySet);
+
+  const rActors = Array.from(rSet);
+  const aActors = Array.from(aSet);
+  const cActors = Array.from(cSet);
+  const iActors = Array.from(iSet);
+  const allSet = new Set<string>([...rActors, ...aActors, ...cActors, ...iActors]);
+  const allRaciActors = Array.from(allSet);
+  const hasRaciActors = allRaciActors.length > 0;
+
+  const defaultUserName = userProfile.fullName || 'Coordonnateur Général PMO';
+  const defaultUserRole =
+    userProfile.role || 'Spécialiste en Gestion de Projet & Pilotage Stratégique';
+
+  const userIntervenes = userProfile.intervenesAsProgramActor !== false;
+
+  const effectiveLeadName = !hasRaciActors
+    ? defaultUserName
+    : userIntervenes
+    ? defaultUserName
+    : internalOnlyActors[0] || rActors[0] || aActors[0] || defaultUserName;
+
+  const effectiveLeadRole = !hasRaciActors
+    ? defaultUserRole
+    : userIntervenes
+    ? defaultUserRole
+    : rActors[0]
+    ? 'Responsable Opérationnel du Programme (RACI-R)'
+    : aActors[0]
+    ? 'Autorité d’Approbation du Programme (RACI-A)'
+    : defaultUserRole;
+
+  const effectiveAuthorityName =
+    aActors[0] || defaultUserName || 'Président du Comité de Pilotage (COPIL)';
+  const effectiveConsultedList =
+    cActors.join(', ') || `${defaultUserName} (${defaultUserRole})`;
+  const effectiveInformedList =
+    iActors.join(', ') ||
+    userProfile.institution ||
+    dossier.institution ||
+    defaultUserName;
+
+  const primaryR = rActors[0] || effectiveLeadName;
+  const primaryA = effectiveAuthorityName;
+  const primaryC = cActors[0] || defaultUserName;
+  const primaryI = iActors[0] || userProfile.institution || dossier.institution || defaultUserName;
+
+  return {
+    intervenesAsProgramActor: userIntervenes,
+    hasRaciActors,
+    hasAnyRaciActor: hasRaciActors,
+    rActors,
+    aActors,
+    cActors,
+    iActors,
+    allRaciActors,
+    rList: rActors,
+    aList: aActors,
+    cList: cActors,
+    iList: iActors,
+    allActors: allRaciActors,
+    internalOnlyActors,
+    categorizedActors,
+    effectiveLeadName,
+    effectiveLeadRole,
+    leadActorName: effectiveLeadName,
+    leadActorRole: effectiveLeadRole,
+    effectiveAuthorityName,
+    effectiveConsultedList,
+    effectiveInformedList,
+    primaryR,
+    primaryA,
+    primaryC,
+    primaryI
+  };
+}
+
+
 /**
  * Pré-remplit automatiquement les 10 Matrices Maîtresses (M1 à M10)
- * à partir des données réelles du Dossier actif, des Tâches, du Réseau PERT,
- * de la Matrice RACI, des Champs Spécifiques et du Profil Utilisateur.
+ * à partir des données réelles du Dossier actif, des onglets Planification,
+ * Suivi des tâches et RACI, du Réseau PERT et du Profil Utilisateur.
  */
 export function buildDefaultMatricesFromApp(
   dossier: Dossier,
   fields: CustomDocFields,
   userProfile: UserProfile,
   currency: CurrencyCode = 'FCFA',
-  _lang: LanguageCode = 'FR'
+  lang: LanguageCode = 'FR'
 ): AllMatricesData {
   const todayISO = getTodayISO();
   const pertSummaries = computeDossierPertSummary(dossier, todayISO);
   const allNodes = pertSummaries.flatMap(p => p.nodes);
   const nodeMap = new Map(allNodes.map(n => [n.id, n]));
+  const raciCtx = resolveProgramRaciContext(dossier, userProfile);
 
   const orgName =
-    userProfile.institution ||
     dossier.institution ||
+    userProfile.institution ||
     'Direction Générale de la Stratégie & Pilotage';
   const donorName =
     fields.recipientOrg ||
     dossier.institution ||
     'Partenaires Techniques et Financiers (PNUD / BM / UE)';
-  const leadName = userProfile.fullName || 'Coordonnateur Général PMO';
-  const recipientRep = fields.recipientRepresentative || 'Président du Comité de Pilotage (COPIL)';
+  const leadName = raciCtx.effectiveLeadName;
+  const recipientRep =
+    fields.recipientRepresentative || raciCtx.effectiveAuthorityName;
 
   let totalTasks = 0;
   let completedTasks = 0;
@@ -709,8 +944,8 @@ export function buildDefaultMatricesFromApp(
   const m9Rows: MatrixRowData[] = [];
   const m10Rows: MatrixRowData[] = [];
 
-  const uniqueAssignees = new Set<string>();
-  const uniqueAuthorities = new Set<string>();
+  const uniqueAssignees = new Set<string>(raciCtx.rActors);
+  const uniqueAuthorities = new Set<string>(raciCtx.aActors);
 
   (dossier.axes || []).forEach((axe, aIdx) => {
     (axe.projects || []).forEach((proj, pIdx) => {
@@ -729,8 +964,12 @@ export function buildDefaultMatricesFromApp(
         const b = Number(task.budget) || 0;
         totalBudgetFCFA += b;
 
-        if (task.assignee) uniqueAssignees.add(task.assignee);
-        if (task.autorite) uniqueAuthorities.add(task.autorite);
+        const taskR = (task.assignee || '').trim() || leadName;
+        const taskA = (task.autorite || '').trim() || raciCtx.effectiveAuthorityName;
+        const taskC = (task.consulte || '').trim() || raciCtx.effectiveConsultedList;
+        const taskI = (task.informe || '').trim() || raciCtx.effectiveInformedList;
+        const taskLivrable =
+          (task.livrable || '').trim() || `Livrable de l’activité ${task.name}`;
 
         let valAtteinte = 0;
         let statutM2 = 'Non démarré';
@@ -777,7 +1016,7 @@ export function buildDefaultMatricesFromApp(
         const durationDays = pertNode?.duration || Math.max(1, metrics.plannedDurationDays || 10);
         const hjAllocated = Math.max(1, Math.round(durationDays * 0.8));
 
-        // M2: WBS, Chronogramme Gantt, Chemin Critique PERT & PTBA
+        // M2: WBS, Chronogramme Gantt, Chemin Critique PERT & PTBA (synchronisé avec Planification & Suivi des tâches)
         m2Rows.push(
           computeMatrixRowCalculations('M2', {
             Code_WBS: code,
@@ -787,8 +1026,11 @@ export function buildDefaultMatricesFromApp(
             Duree_Jours: String(durationDays),
             Date_Debut_Prevue: task.startDate || todayISO,
             Date_Fin_Prevue: task.endDate || todayISO,
-            Date_Fin_Reelle: task.actualEndDate || '',
-            Jalon_Associe: task.livrable || `Validation ${code}`,
+            Date_Fin_Reelle:
+              metrics.effectiveStatus === 'Terminé'
+                ? metrics.effectiveActualEndDate
+                : '',
+            Jalon_Associe: taskLivrable,
             Chemin_Critique_PERT: pertNode?.isCritical ? 'Oui - Critique' : 'Non - Marge libre',
             Valeur_Atteinte: String(valAtteinte),
             Cible: '100',
@@ -797,21 +1039,27 @@ export function buildDefaultMatricesFromApp(
           })
         );
 
-        // M3: Gouvernance RACI & Ressources Humaines
+        // M3: Gouvernance RACI & Ressources Humaines (synchronisé avec l'onglet RACI / Profil Utilisateur par défaut)
         m3Rows.push({
           Code_Acteur_Lot: `RH-${code}`,
-          Domaine_Livrable_Activite: `${task.name} (${task.livrable || 'Livrable opérationnel'})`,
-          Role_Poste_Expert: task.responsabilite || 'Expert Technique / Spécialiste Métier',
+          Domaine_Livrable_Activite: `${task.name} (${taskLivrable})`,
+          Role_Poste_Expert:
+            task.responsabilite ||
+            (taskR === userProfile.fullName
+              ? userProfile.role
+              : 'Expert Technique / Responsable Opérationnel'),
           Entite_Organisation: orgName,
-          Qualification_Niveau: 'Bac+5 / Ingénieur ou Expert Senior (7+ ans exp.)',
+          Qualification_Niveau:
+            userProfile.cvCertifications ||
+            'Bac+5 / Ingénieur ou Expert Senior (7+ ans exp.)',
           Charge_Homme_Jours: String(hjAllocated),
-          R_Realisateur: task.assignee || leadName,
-          A_Approbateur: task.autorite || recipientRep,
-          C_Consulte: task.consulte || 'Cellule Technique S&E',
-          I_Informe: task.informe || donorName
+          R_Realisateur: taskR,
+          A_Approbateur: taskA,
+          C_Consulte: taskC,
+          I_Informe: taskI
         });
 
-        // M5: Budget Analytique, Exécution Financière & EVM
+        // M5: Budget Analytique, Exécution Financière & EVM (synchronisé avec Planification & Suivi des tâches)
         const engageTask =
           metrics.effectiveStatus === 'Terminé'
             ? b
@@ -838,7 +1086,7 @@ export function buildDefaultMatricesFromApp(
           })
         );
 
-        // M9: Livrables Contractuels, Assurance Qualité & Critères d'Acceptation
+        // M9: Livrables Contractuels, Assurance Qualité & Critères d'Acceptation (synchronisé avec la colonne Livrable de Planification Macro)
         const tranchePct =
           totalTasks > 0 ? `${Math.max(5, Math.round(100 / Math.max(1, (proj.tasks || []).length)))}%` : '20%';
         const statutValid =
@@ -852,17 +1100,20 @@ export function buildDefaultMatricesFromApp(
 
         m9Rows.push({
           Code_Livrable: `LIV-${code}`,
-          Intitule_Livrable_Actif: task.livrable || `Livrable de l’activité ${task.name}`,
+          Intitule_Livrable_Actif: taskLivrable,
           Description_Format_Attendu: 'Rapport technique A4 (PDF) + Pièces justificatives & PV',
           Date_Echeance_Prevue: task.endDate || todayISO,
-          Date_Remise_Reelle: task.actualEndDate || '',
+          Date_Remise_Reelle:
+            metrics.effectiveStatus === 'Terminé'
+              ? metrics.effectiveActualEndDate
+              : '',
           Criteres_Qualite_Acceptation: 'Conformité aux TDR, validation RACI (Autorité A) et respect des normes ISO 21500 / UNEG',
-          Instance_Approbation: task.autorite || 'Comité de Pilotage (COPIL) & Cellule Qualité',
+          Instance_Approbation: taskA,
           'Tranche_Paiement_Associee_%': tranchePct,
           Statut_Validation: statutValid
         });
 
-        // M8: Plan de Passation des Marchés (pour les tâches à budget significatif ou d'acquisition)
+        // M8: Plan de Passation des Marchés
         if (b > 0 && task.type === 'tache') {
           const isConsult =
             /étude|audit|conception|cadrage|évaluation|formation/i.test(task.name);
@@ -872,7 +1123,7 @@ export function buildDefaultMatricesFromApp(
             );
           m8Rows.push({
             Code_Marche: `PPM-${dossier.psdYear || 2026}-${String(m8Rows.length + 1).padStart(2, '0')}`,
-            Designation_Acquisition: task.name,
+            Designation_Acquisition: `${task.name} — Livrable : ${taskLivrable}`,
             Categorie_Marche: isEquip
               ? 'Fournitures / Équipements'
               : isConsult
@@ -883,8 +1134,14 @@ export function buildDefaultMatricesFromApp(
             Montant_Estime: String(b),
             Montant_Contractuel_Reel: metrics.effectiveStatus === 'Terminé' || metrics.effectiveStatus === 'En cours' ? String(b) : '',
             Date_Lancement_DAO: task.startDate || todayISO,
-            Date_Attribution_Signature: task.actualStartDate || task.startDate || '',
-            Date_Reception_Prevue_Reelle: task.actualEndDate || task.endDate || '',
+            Date_Attribution_Signature:
+              metrics.effectiveStatus !== 'À faire'
+                ? metrics.effectiveActualStartDate || task.startDate || ''
+                : '',
+            Date_Reception_Prevue_Reelle:
+              metrics.effectiveStatus === 'Terminé'
+                ? metrics.effectiveActualEndDate || task.endDate || ''
+                : task.endDate || '',
             Statut_Marche:
               metrics.effectiveStatus === 'Terminé'
                 ? 'Exécuté / Réceptionné'
@@ -894,7 +1151,7 @@ export function buildDefaultMatricesFromApp(
           });
         }
 
-        // M10: Capitalisation & Plan d'Action Correctif (pour les tâches bloquées ou en écart)
+        // M10: Capitalisation & Plan d'Action Correctif (pour les tâches bloquées ou en écart dans Suivi des tâches)
         if (
           metrics.effectiveStatus === 'Bloqué' ||
           metrics.ecartDebutDays > 0 ||
@@ -907,10 +1164,10 @@ export function buildDefaultMatricesFromApp(
               metrics.effectiveStatus === 'Bloqué'
                 ? 'Goulot d’étranglement opérationnel ou attente de validation inter-services sur prérequis technique.'
                 : 'Glissement calendaire lié à la mobilisation séquentielle des ressources sur la chaîne critique.',
-            Recommandation_Prescription_Action: `Prioriser le déblocage immédiat en réunion restreinte, réallouer l’appui technique auprès de ${task.assignee || leadName} et sécuriser le livrable « ${task.livrable || 'Attendu'} ».`,
+            Recommandation_Prescription_Action: `Prioriser le déblocage immédiat en réunion restreinte, réallouer l’appui technique auprès de ${taskR} et sécuriser le livrable « ${taskLivrable} ».`,
             Priorite: pertNode?.isCritical || metrics.effectiveStatus === 'Bloqué' ? 'Critique / Urgente' : 'Haute',
-            Indicateur_Verif_Mise_En_Oeuvre: `PV de réception signé et statut passé à « Terminé » dans le Kanban`,
-            Responsable_Execution: task.assignee || leadName,
+            Indicateur_Verif_Mise_En_Oeuvre: `PV de réception signé par ${taskA} et statut passé à « Terminé »`,
+            Responsable_Execution: taskR,
             Echeance_Cible: task.endDate || todayISO,
             Budget_Additionnel_Requis: '0',
             Statut_Mise_En_Oeuvre: metrics.effectiveStatus === 'Terminé' ? 'Réalisé' : 'En cours'
@@ -928,7 +1185,7 @@ export function buildDefaultMatricesFromApp(
   const financialExecPct =
     totalBudgetFCFA > 0 ? Math.round((committedBudgetFCFA / totalBudgetFCFA) * 100) : 0;
 
-  // M1: Cadre Logique & Chaîne de Résultats (Impact, Effets par Axe, Extrants par Projet, Synthèse Activités)
+  // M1: Cadre Logique & Chaîne de Résultats
   m1Rows.push(
     computeMatrixRowCalculations('M1', {
       Code_Resultat: 'IMP-1',
@@ -963,7 +1220,7 @@ export function buildDefaultMatricesFromApp(
         'Taux_Realisation_%': `${axePct}%`,
         Source_Verification: 'Rapports CAP, Revue à Mi-Parcours & PV du Comité de Pilotage',
         Frequence_Collecte: 'Semestrielle',
-        Responsable_Collecte: 'Cellule Centrale Suivi-Évaluation (S&E)',
+        Responsable_Collecte: raciCtx.cActors[0] || leadName,
         Hypotheses_Critiques: 'Adhésion des parties prenantes et fluidité des arbitrages du COPIL.'
       })
     );
@@ -971,11 +1228,12 @@ export function buildDefaultMatricesFromApp(
     (axe.projects || []).forEach((proj, pIdx) => {
       const pTasks = proj.tasks || [];
       const pDone = pTasks.filter(t => computeTaskMetrics(t, todayISO).effectiveStatus === 'Terminé').length;
+      const pLivrables = pTasks.map(t => t.livrable).filter(Boolean).slice(0, 3).join(', ');
       m1Rows.push(
         computeMatrixRowCalculations('M1', {
           Code_Resultat: `EXT-${aIdx + 1}.${pIdx + 1}`,
           Niveau_GAR: 'Extrant / Output',
-          Intitule_Resultat: `Livrables opérationnels du projet « ${proj.name} » produits et validés`,
+          Intitule_Resultat: `Livrables opérationnels du projet « ${proj.name} » produits et validés${pLivrables ? ` (${pLivrables})` : ''}`,
           Indicateur_SMART: `Nombre d’activités et jalons validés sur le projet P${pIdx + 1}`,
           Baseline: '0',
           Cible: String(Math.max(1, pTasks.length)),
@@ -983,7 +1241,7 @@ export function buildDefaultMatricesFromApp(
           'Taux_Realisation_%': '0%',
           Source_Verification: 'Bordereaux de réception, PV de validation et Tableau Kanban',
           Frequence_Collecte: 'Trimestrielle',
-          Responsable_Collecte: pTasks[0]?.assignee || leadName,
+          Responsable_Collecte: (pTasks[0]?.assignee || '').trim() || leadName,
           Hypotheses_Critiques: 'Disponibilité à temps des intrants techniques et levée des blocages.'
         })
       );
@@ -995,65 +1253,64 @@ export function buildDefaultMatricesFromApp(
       Code_Resultat: 'ACT-GLOBAL',
       Niveau_GAR: 'Activité',
       Intitule_Resultat: `Exécution coordonnée des ${totalTasks} activités/jalons sur un chemin critique PERT de ${maxDur} jours ouvrés`,
-      Indicateur_SMART: `Taux d’absorption budgétaire sur l’enveloppe de ${formatCleanAmount(totalBudgetFCFA, currency, 'FR')} (%)`,
+      Indicateur_SMART: `Taux d’absorption budgétaire sur l’enveloppe de ${formatCleanAmount(totalBudgetFCFA, currency, lang)} (%)`,
       Baseline: '0%',
       Cible: '100',
       Valeur_Atteinte: String(financialExecPct),
       'Taux_Realisation_%': `${financialExecPct}%`,
       Source_Verification: 'États d’exécution PTBA, Comptabilité Projet & Réseau PERT',
       Frequence_Collecte: 'Mensuelle',
-      Responsable_Collecte: 'Direction Administrative & Financière / PMO',
+      Responsable_Collecte: leadName,
       Hypotheses_Critiques: 'Décaissement régulier des tranches budgétaires sans rupture de trésorerie.'
     })
   );
 
-  // M4: Parties Prenantes, Engagement & Communication
-  m4Rows.push(
-    {
-      Code_PP: 'PP-01',
-      Nom_Institution_Groupe: orgName,
-      Categorie_Acteur: "Agence d'exécution",
-      Role_Dans_Projet: `Maîtrise d’ouvrage déléguée, coordination opérationnelle et pilotage PMO (${leadName} — ${userProfile.role})`,
-      Niveau_Pouvoir_1_5: '5',
+  // M4: Parties Prenantes, Engagement & Communication (synchronisé avec l'onglet Catégorie en 5 catégories & RACI)
+  raciCtx.categorizedActors.slice(0, 10).forEach((catActor, idx) => {
+    const powerByCat =
+      catActor.category === 'Interne' ||
+      catActor.category === 'Partenaire Financier' ||
+      catActor.category === 'Externe'
+        ? '5'
+        : catActor.category === 'Prestataire'
+        ? '3'
+        : '2';
+    const strategyByCat =
+      catActor.category === 'Bénéficiaires'
+        ? 'Consultations participatives, focus groups, mécanisme de gestion des plaintes et appropriation'
+        : catActor.category === 'Interne'
+        ? 'Pilotage proactif quotidien, revues hebdomadaires UGP/PMO et coordination RACI'
+        : catActor.category === 'Externe'
+        ? 'Concertation institutionnelle, soumission des dossiers de conformité, visas et laisser-passer'
+        : catActor.category === 'Prestataire'
+        ? 'Suivi contractuel rigoureux, réunions de chantier et contrôle de réception des livrables'
+        : 'Transparence fiduciaire totale, demandes d’ANO anticipées et revues conjointes de supervision';
+    const freqByCat =
+      catActor.category === 'Interne'
+        ? 'Réunions UGP Hebdomadaires & Tableau Kanban'
+        : catActor.category === 'Partenaire Financier'
+        ? 'Sessions du COPIL Trimestrielles & Missions de Supervision'
+        : catActor.category === 'Externe'
+        ? 'Comités Techniques Mensuels & Courriers Officiels'
+        : catActor.category === 'Prestataire'
+        ? 'Points d’Avancement Hebdomadaires & Bordereaux de Livrables'
+        : 'Ateliers de Concertation & Enquêtes CAP Semestrielles';
+
+    m4Rows.push({
+      Code_PP: `PP-${String(idx + 1).padStart(2, '0')}`,
+      Nom_Institution_Groupe: `${catActor.name} (${catActor.organization})`,
+      Categorie_Acteur: catActor.category,
+      Role_Dans_Projet: `${catActor.roleOrFunction} [RACI: ${(catActor.raciRoles || ['R']).join('/')}]`,
+      Niveau_Pouvoir_1_5: powerByCat,
       Niveau_Interet_1_5: '5',
-      Attentes_Enjeux_Majeurs: 'Atteinte de 100% des cibles dans le respect du chemin critique PERT et du budget PTBA',
-      Strategie_Engagement: 'Pilotage proactif quotidien, revues hebdomadaires et coordination RACI',
-      Canal_Frequence_Comm: 'Réunions PMO Hebdomadaires & Rapports CAP Mensuels'
-    },
-    {
-      Code_PP: 'PP-02',
-      Nom_Institution_Groupe: donorName,
-      Categorie_Acteur: 'Bailleur',
-      Role_Dans_Projet: `Financement, supervision stratégique, délivrance des Avis de Non-Objection (ANO) et validation (${recipientRep})`,
-      Niveau_Pouvoir_1_5: '5',
-      Niveau_Interet_1_5: '5',
-      Attentes_Enjeux_Majeurs: 'Conformité fiduciaire stricte, traçabilité des fonds, efficacité GAR et impact mesurable',
-      Strategie_Engagement: 'Transparence totale, transmission ponctuelle des rapports normés et missions conjointes',
-      Canal_Frequence_Comm: 'Sessions du COPIL Trimestrielles & Missions de Supervision'
-    },
-    {
-      Code_PP: 'PP-03',
-      Nom_Institution_Groupe: Array.from(uniqueAssignees).slice(0, 4).join(', ') || 'Équipes Techniques & Prestataires',
-      Categorie_Acteur: 'Commanditaire',
-      Role_Dans_Projet: 'Réalisation technique des lots WBS, production des livrables et mise à jour des jalons',
-      Niveau_Pouvoir_1_5: '3',
-      Niveau_Interet_1_5: '5',
-      Attentes_Enjeux_Majeurs: 'Clarté des TDR, disponibilité des intrants et fluidité de validation des livrables',
-      Strategie_Engagement: 'Réunions de chantier, suivi Kanban partagé et revues techniques de réception',
-      Canal_Frequence_Comm: 'Point d’avancement Hebdomadaire & Fiches Livrables'
-    },
-    {
-      Code_PP: 'PP-04',
-      Nom_Institution_Groupe: `Bénéficiaires Finaux & Usagers (${fields.locationCity || 'Zone d’Intervention'})`,
-      Categorie_Acteur: 'Bénéficiaires',
-      Role_Dans_Projet: 'Récepteurs finaux des infrastructures, services et acquis générés par le portefeuille',
-      Niveau_Pouvoir_1_5: '2',
-      Niveau_Interet_1_5: '5',
-      Attentes_Enjeux_Majeurs: 'Accessibilité, qualité durable des réalisations et prise en compte des besoins réels',
-      Strategie_Engagement: 'Consultations participatives, focus groups, mécanisme de gestion des plaintes et appropriation',
-      Canal_Frequence_Comm: 'Ateliers de Concertation & Enquêtes Terrain Semestrielles'
-    }
-  );
+      Attentes_Enjeux_Majeurs:
+        catActor.expectationsAndRole ||
+        `Contribution de catégorie « ${catActor.category} » à l’atteinte des résultats du programme`,
+      Strategie_Engagement: strategyByCat,
+      Canal_Frequence_Comm: freqByCat
+    });
+  });
+
 
   // M6: Grille d'Évaluation Internationale (6 Critères OCDE/CAD & UNEG)
   const effScore = progressPct >= 80 ? '5' : progressPct >= 55 ? '4' : progressPct >= 30 ? '3' : '2';
@@ -1081,7 +1338,7 @@ export function buildDefaultMatricesFromApp(
       Indicateur_Reponse: `Pourcentage de projets disposant de liens d’antécédence PERT/CPM et d’une gouvernance RACI harmonisée (100% sur ${pertSummaries.length} projet(s))`,
       Sources_Triangulation_3_Niveaux: '1. Doc : Matrices WBS & RACI | 2. Quantitatif : Réseau PERT | 3. Qualitatif : Focus groups avec chefs de projets',
       Methode_Outil_Collecte: 'Analyse structurelle du réseau PERT & Entretiens de coordination',
-      Cible_Repondants: 'Coordonnateurs d’axes, Chefs de projets, Partenaires Techniques',
+      Cible_Repondants: Array.from(uniqueAssignees).join(', ') || leadName,
       Score_1_a_5: '4',
       Appreciation_Normative: 'Satisfaisant'
     },
@@ -1094,7 +1351,7 @@ export function buildDefaultMatricesFromApp(
       Indicateur_Reponse: `Taux de réalisation physique global : ${progressPct}% (${completedTasks}/${totalTasks} activités terminées, ${inProgressTasks} en cours)`,
       Sources_Triangulation_3_Niveaux: '1. Doc : Rapports CAP & PV | 2. Quantitatif : Base de suivi Kanban | 3. Qualitatif : Visites de vérification terrain',
       Methode_Outil_Collecte: 'Audit physique contradictoire des livrables & Calcul des écarts Début/Fin',
-      Cible_Repondants: 'Responsables RACI (Réalisateurs R et Approbateurs A)',
+      Cible_Repondants: `Responsables RACI (R : ${Array.from(uniqueAssignees).join(', ') || leadName} ; A : ${Array.from(uniqueAuthorities).join(', ') || recipientRep})`,
       Score_1_a_5: effScore,
       Appreciation_Normative: Number(effScore) >= 4 ? 'Satisfaisant' : 'Moyen'
     },
@@ -1104,10 +1361,10 @@ export function buildDefaultMatricesFromApp(
       'Poids_Critere_%': '20%',
       Question_Evaluative_Principale: 'Les ressources financières, humaines et temporelles ont-elles été converties de manière optimale en résultats (analyse coût-efficacité) ?',
       Sous_Questions_Jugement: 'Adéquation entre décaissement et avancement physique ; Maîtrise des coûts unitaires ; Respect du chemin critique PERT.',
-      Indicateur_Reponse: `Exécution financière de ${financialExecPct}% sur ${formatCleanAmount(totalBudgetFCFA, currency, 'FR')} ; Chemin critique de ${maxDur}j (${blockedTasks} blocage(s))`,
+      Indicateur_Reponse: `Exécution financière de ${financialExecPct}% sur ${formatCleanAmount(totalBudgetFCFA, currency, lang)} ; Chemin critique de ${maxDur}j (${blockedTasks} blocage(s))`,
       Sources_Triangulation_3_Niveaux: '1. Doc : États financiers PTBA | 2. Quantitatif : Valeur Acquise (EVM / CPI) | 3. Qualitatif : Entretiens DAF & Auditeurs',
       Methode_Outil_Collecte: 'Audit budgétaire EVM (BAC, EV, AC, CPI) & Analyse des marges PERT',
-      Cible_Repondants: 'Direction Financière, Contrôleur de Gestion, Coordonnateur PMO',
+      Cible_Repondants: `Direction Financière & ${leadName}`,
       Score_1_a_5: efcScore,
       Appreciation_Normative: Number(efcScore) >= 4 ? 'Satisfaisant' : 'Moyen'
     },
@@ -1178,7 +1435,7 @@ export function buildDefaultMatricesFromApp(
       Code_RAID: 'A-03',
       Type_Element: 'Hypothèse',
       Categorie: 'Financier & Fiduciaire',
-      Description_Precise: `Disponibilité et décaissement régulier des tranches sur l’enveloppe globale de ${formatCleanAmount(totalBudgetFCFA, currency, 'FR')}`,
+      Description_Precise: `Disponibilité et décaissement régulier des tranches sur l’enveloppe globale de ${formatCleanAmount(totalBudgetFCFA, currency, lang)}`,
       Cause_Racine: 'Procédures d’appels de fonds et de justification des dépenses antérieures auprès du bailleur',
       Consequence_Impact_Projet: 'Rupture de trésorerie ralentissant le démarrage des marchés et prestations programmés au PTBA',
       Probabilite_1_5: '3',
@@ -1201,12 +1458,11 @@ export function buildDefaultMatricesFromApp(
       Criticite_PxI: '8',
       Strategie_Reponse: 'Éviter',
       Plan_Action_Mitigation: 'Application stricte de la triangulation à 3 niveaux (UNEG) et obligation de joindre le livrable validé avant clôture',
-      Proprietaire_Risque: 'Cellule Centrale S&E / Auditeur Qualité',
+      Proprietaire_Risque: raciCtx.cActors[0] || leadName,
       Statut_RAID: 'Sous contrôle'
     })
   );
 
-  // Garantir qu'aucune matrice n'est vide même si le dossier n'avait pas de tâches bloquées ou de marchés
   if (m8Rows.length === 0) {
     m8Rows.push({
       Code_Marche: `PPM-${dossier.psdYear || 2026}-01`,
@@ -1268,7 +1524,8 @@ export function buildDefaultMatricesFromApp(
 
 /**
  * Résout l'état complet des 10 matrices en fusionnant les données pré-remplies
- * depuis l'application avec les éventuelles modifications sauvegardées par l'utilisateur.
+ * en temps réel depuis les onglets Planification, Suivi des tâches et RACI du programme sélectionné
+ * avec les éventuelles personnalisations spécifiques au programme.
  */
 export function resolveActiveMatricesData(
   dossier: Dossier,
@@ -1286,8 +1543,9 @@ export function resolveActiveMatricesData(
     const parsed = JSON.parse(rawJson) as Partial<AllMatricesData>;
     const merged: AllMatricesData = { ...defaults };
     (Object.keys(defaults) as MasterMatrixId[]).forEach(mId => {
-      if (Array.isArray(parsed[mId]) && parsed[mId]!.length > 0) {
-        merged[mId] = parsed[mId]!.map(row => computeMatrixRowCalculations(mId, row));
+      const savedRows = parsed[mId];
+      if (Array.isArray(savedRows)) {
+        merged[mId] = savedRows.map(row => computeMatrixRowCalculations(mId, row));
       }
     });
     return merged;
@@ -1483,7 +1741,7 @@ export function buildStructuredA4TableFromMatrix(
           `${r.Rubrique_Activite_PTBA || '—'}\nSource : ${r.Source_Financement || '—'}`,
           fmtAmt(r.Budget_Initial_BAC),
           `Eng. : ${fmtAmt(r.Budget_Engage)}\nAC : ${fmtAmt(r.Cout_Reel_AC)}`,
-          `EV : ${fmtAmt(r.Valeur_Acquise_EV)}\nCV : ${r.Ecart_Cout_CV || '0'}`,
+          `EV : ${fmtAmt(r.Valeur_Acquise_EV)}\nCV : ${fmtAmt(String(ev - ac))}`,
           `Déc. : ${r['Taux_Decaissement_%'] || '0%'}\nCPI : ${r.Indice_CPI || '1.00'}`
         ];
       });

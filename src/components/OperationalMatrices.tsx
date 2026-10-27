@@ -35,7 +35,14 @@ interface RaciMultiActorCellProps {
   isPrimary?: boolean;
   suggestions?: string[];
   datalistId: string;
+  language?: LanguageCode;
+  allowNeant?: boolean;
 }
+
+const isNeantToken = (val?: string): boolean => {
+  const clean = (val || '').trim().toLowerCase();
+  return clean === 'néant' || clean === 'neant' || clean === 'none';
+};
 
 const RaciMultiActorCell: React.FC<RaciMultiActorCellProps> = ({
   value,
@@ -43,10 +50,13 @@ const RaciMultiActorCell: React.FC<RaciMultiActorCellProps> = ({
   placeholder = 'Ajouter...',
   isPrimary = false,
   suggestions = [],
-  datalistId
+  datalistId,
+  language = 'FR',
+  allowNeant = false
 }) => {
   const [draft, setDraft] = useState('');
   const [pendingRemoveIdx, setPendingRemoveIdx] = useState<number | null>(null);
+  const neantLabel = language === 'EN' ? 'None' : 'Néant';
 
   const actors = useMemo(() => {
     if (!value || !value.trim()) return [];
@@ -56,10 +66,26 @@ const RaciMultiActorCell: React.FC<RaciMultiActorCellProps> = ({
       .filter(Boolean);
   }, [value]);
 
-  const handleAddActor = () => {
-    const trimmed = draft.trim().replace(/,/g, '');
+  const isCurrentlyNeant = useMemo(
+    () => actors.length === 1 && isNeantToken(actors[0]),
+    [actors]
+  );
+
+  const handleSelectNeant = () => {
+    onChange(neantLabel);
+    setDraft('');
+  };
+
+  const handleAddActor = (overrideVal?: string) => {
+    const rawToUse = overrideVal !== undefined ? overrideVal : draft;
+    const trimmed = rawToUse.trim().replace(/,/g, '');
     if (!trimmed) return;
-    const next = [...actors, trimmed];
+    if (allowNeant && isNeantToken(trimmed)) {
+      handleSelectNeant();
+      return;
+    }
+    const baseActors = actors.filter(a => !isNeantToken(a));
+    const next = [...baseActors, trimmed];
     onChange(next.join(', '));
     setDraft('');
   };
@@ -87,10 +113,14 @@ const RaciMultiActorCell: React.FC<RaciMultiActorCellProps> = ({
               </div>
               <div>
                 <h3 className="text-sm font-black uppercase tracking-wider text-slate-900 dark:text-white">
-                  Validation de Suppression Requise
+                  {language === 'EN'
+                    ? 'Deletion Confirmation Required'
+                    : 'Validation de Suppression Requise'}
                 </h3>
                 <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
-                  Confirmez-vous la suppression définitive du responsable «{' '}
+                  {language === 'EN'
+                    ? 'Do you confirm the permanent removal of actor « '
+                    : 'Confirmez-vous la suppression définitive du responsable « '}
                   <strong className="text-[#0c4a6e] dark:text-[#90D5FF]">
                     {actors[pendingRemoveIdx]}
                   </strong>{' '}
@@ -104,7 +134,7 @@ const RaciMultiActorCell: React.FC<RaciMultiActorCellProps> = ({
                 onClick={() => setPendingRemoveIdx(null)}
                 className="px-3.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
               >
-                Annuler
+                {language === 'EN' ? 'Cancel' : 'Annuler'}
               </button>
               <button
                 type="button"
@@ -114,7 +144,7 @@ const RaciMultiActorCell: React.FC<RaciMultiActorCellProps> = ({
                 }}
                 className="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-black uppercase cursor-pointer"
               >
-                Valider la suppression
+                {language === 'EN' ? 'Confirm deletion' : 'Valider la suppression'}
               </button>
             </div>
           </div>
@@ -124,43 +154,63 @@ const RaciMultiActorCell: React.FC<RaciMultiActorCellProps> = ({
       {/* Existing actors list */}
       {actors.length > 0 && (
         <div className="flex flex-wrap gap-1">
-          {actors.map((actor, idx) => (
-            <div
-              key={`${idx}-${actor}`}
-              className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-bold border ${
-                isPrimary
-                  ? 'bg-[#0c4a6e]/10 dark:bg-sky-950/60 border-[#90D5FF] text-[#0c4a6e] dark:text-[#90D5FF]'
-                  : 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200'
-              }`}
-            >
-              <input
-                type="text"
-                value={actor}
-                onChange={e => handleEditActor(idx, e.target.value)}
-                style={{ width: `${Math.max(actor.length + 1, 6)}ch` }}
-                className="bg-transparent text-[9px] font-bold focus:outline-none min-w-[40px] max-w-[120px]"
-              />
-              <button
-                type="button"
-                onClick={() => setPendingRemoveIdx(idx)}
-                className="text-slate-400 hover:text-rose-600 p-0.5 cursor-pointer"
-                title="Retirer ce responsable"
+          {actors.map((actor, idx) => {
+            const actorIsNeant = isNeantToken(actor);
+            return (
+              <div
+                key={`${idx}-${actor}`}
+                className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-bold border ${
+                  actorIsNeant
+                    ? 'bg-amber-50 dark:bg-amber-950/50 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 italic'
+                    : isPrimary
+                    ? 'bg-[#0c4a6e]/10 dark:bg-sky-950/60 border-[#90D5FF] text-[#0c4a6e] dark:text-[#90D5FF]'
+                    : 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200'
+                }`}
               >
-                <X className="w-2.5 h-2.5" />
-              </button>
-            </div>
-          ))}
+                <input
+                  type="text"
+                  value={actor}
+                  onChange={e => handleEditActor(idx, e.target.value)}
+                  style={{ width: `${Math.max(actor.length + 1, 6)}ch` }}
+                  className="bg-transparent text-[9px] font-bold focus:outline-none min-w-[40px] max-w-[120px]"
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    actorIsNeant ? handleRemoveActor(idx) : setPendingRemoveIdx(idx)
+                  }
+                  className="text-slate-400 hover:text-rose-600 p-0.5 cursor-pointer"
+                  title={
+                    actorIsNeant
+                      ? language === 'EN'
+                        ? 'Clear None'
+                        : 'Retirer Néant'
+                      : 'Retirer ce responsable'
+                  }
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* Add new actor inline */}
+      {/* Add new actor inline + Néant choice for Consulté (C) & Informé (I) */}
       <div className="flex items-center gap-1">
         <input
           type="text"
           list={datalistId}
           value={draft}
           placeholder={placeholder}
-          onChange={e => setDraft(e.target.value)}
+          onChange={e => {
+            const v = e.target.value;
+            if (allowNeant && isNeantToken(v)) {
+              handleSelectNeant();
+            } else {
+              setDraft(v);
+            }
+          }}
           onKeyDown={e => {
             if (e.key === 'Enter') {
               e.preventDefault();
@@ -171,17 +221,34 @@ const RaciMultiActorCell: React.FC<RaciMultiActorCellProps> = ({
         />
         <button
           type="button"
-          onClick={handleAddActor}
+          onClick={() => handleAddActor()}
           className="px-1.5 py-0.5 rounded bg-[#0c4a6e] hover:bg-[#075985] text-[#90D5FF] text-[9px] font-black flex items-center justify-center shrink-0 cursor-pointer"
           title="Ajouter un responsable"
         >
           <Plus className="w-2.5 h-2.5" />
         </button>
-        {suggestions.length > 0 && (
+        {allowNeant && !isCurrentlyNeant && (
+          <button
+            type="button"
+            onClick={handleSelectNeant}
+            className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-amber-100 dark:hover:bg-amber-950/60 border border-slate-300 dark:border-slate-700 hover:border-amber-400 text-slate-600 dark:text-slate-300 hover:text-amber-800 dark:hover:text-amber-300 text-[8.5px] font-extrabold shrink-0 cursor-pointer transition-colors"
+            title={
+              language === 'EN'
+                ? 'Select "None" if there is no actor for this column'
+                : 'Choisir « Néant » s’il n’y a pas d’acteur pour cette colonne'
+            }
+          >
+            {neantLabel}
+          </button>
+        )}
+        {(allowNeant || suggestions.length > 0) && (
           <datalist id={datalistId}>
-            {suggestions.map(s => (
-              <option key={s} value={s} />
-            ))}
+            {allowNeant && <option value={neantLabel} />}
+            {suggestions
+              .filter(s => !isNeantToken(s))
+              .map(s => (
+                <option key={s} value={s} />
+              ))}
           </datalist>
         )}
       </div>
@@ -334,11 +401,11 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
   };
 
   // Column count per mode:
-  // Planification: 10 columns
+  // Planification: 11 columns (including Livrable between Responsable and Budget)
   // Processus (Suivi des tâches): 12 columns
   // RACI: 6 columns
   const colSpanCount =
-    mode === 'planification' ? 10 : mode === 'processus' ? 12 : 6;
+    mode === 'planification' ? 11 : mode === 'processus' ? 12 : 6;
 
   const phasesToDisplay =
     filterPhase === 'ALL'
@@ -365,10 +432,14 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
               </div>
               <div>
                 <h3 className="text-sm font-black uppercase tracking-wider text-slate-900 dark:text-white">
-                  Validation de Suppression Requise
+                  {language === 'EN'
+                    ? 'Deletion Confirmation Required'
+                    : 'Validation de Suppression Requise'}
                 </h3>
                 <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
-                  Confirmez-vous la suppression définitive de l’élément{' '}
+                  {language === 'EN'
+                    ? 'Do you confirm the permanent deletion of item '
+                    : 'Confirmez-vous la suppression définitive de l’élément '}
                   <strong className="font-mono text-[#0c4a6e] dark:text-[#90D5FF]">
                     [{pendingDelete.code}]
                   </strong>{' '}
@@ -382,7 +453,7 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                 onClick={() => setPendingDelete(null)}
                 className="px-3.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
               >
-                Annuler
+                {language === 'EN' ? 'Cancel' : 'Annuler'}
               </button>
               <button
                 type="button"
@@ -392,7 +463,7 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                 }}
                 className="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-black uppercase cursor-pointer"
               >
-                Valider la suppression
+                {language === 'EN' ? 'Confirm deletion' : 'Valider la suppression'}
               </button>
             </div>
           </div>
@@ -406,40 +477,52 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
             {mode === 'planification' && (
               <>
                 <Calendar className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#0284c7] dark:text-[#90D5FF] shrink-0" />
-                <span>Planification Macro</span>
+                <span>
+                  {language === 'EN' ? 'Macro Planning' : 'Planification Macro'}
+                </span>
               </>
             )}
             {mode === 'processus' && (
               <>
                 <ListChecks className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#0284c7] dark:text-[#90D5FF] shrink-0" />
-                <span>Suivi des Tâches & Écarts</span>
+                <span>
+                  {language === 'EN'
+                    ? 'Task Tracking & Variances'
+                    : 'Suivi des Tâches & Écarts'}
+                </span>
               </>
             )}
             {mode === 'raci' && (
               <>
                 <Users className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#0284c7] dark:text-[#90D5FF] shrink-0" />
-                <span>Matrice RACI</span>
+                <span>{language === 'EN' ? 'RACI Matrix' : 'Matrice RACI'}</span>
               </>
             )}
           </h2>
           <p className="hidden xl:block text-[10px] text-slate-500 dark:text-slate-400 truncate">
             {mode === 'planification' &&
-              'Cliquez sur le Code pour basculer Tâche ⇄ Jalon.'}
+              (language === 'EN'
+                ? 'Click on the Code to toggle Task ⇄ Milestone.'
+                : 'Cliquez sur le Code pour basculer Tâche ⇄ Jalon.')}
             {mode === 'processus' &&
-              'Seules Déb. Exéc et Fin Exéc sont modifiables.'}
+              (language === 'EN'
+                ? 'Only Actual Start and Actual End dates are editable.'
+                : 'Seules Déb. Exéc et Fin Exéc sont modifiables.')}
             {mode === 'raci' &&
-              'Ajoutez plusieurs responsables dans R, C et I (+). Autorité (A) unique.'}
+              (language === 'EN'
+                ? 'Add multiple actors in R, C and I (+). Single Authority (A).'
+                : 'Ajoutez plusieurs responsables dans R, C et I (+). Autorité (A) unique.')}
           </p>
         </div>
 
-        {/* 5 Ultra-Compact Filter Dropdowns (Reduced height & padding on mobile) */}
+        {/* 5 Filter Dropdowns (2x size on mobile) */}
         <div className="grid grid-cols-3 sm:grid-cols-5 gap-1 sm:gap-1.5">
           {/* 1. Axe */}
-          <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 px-1 py-0.5 md:px-2 md:py-1 rounded border border-slate-200 dark:border-slate-700 h-5.5 md:h-auto">
+          <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 px-1.5 py-1 md:px-2 md:py-1 rounded border border-slate-200 dark:border-slate-700 h-7 md:h-auto">
             <Filter className="hidden md:block w-3 h-3 text-[#0284c7] shrink-0" />
             <div className="flex-1 min-w-0">
               <label className="hidden md:block text-[8px] font-bold uppercase text-slate-400 leading-none">
-                1. Axe
+                {language === 'EN' ? '1. Axis' : '1. Axe'}
               </label>
               <select
                 value={filterAxeId}
@@ -447,9 +530,11 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                   setFilterAxeId(e.target.value);
                   setFilterProjectId('ALL');
                 }}
-                className="w-full bg-transparent text-[8px] sm:text-[11px] font-bold text-slate-800 dark:text-slate-100 focus:outline-none truncate leading-none"
+                className="w-full bg-transparent text-[13px] sm:text-[11px] font-bold text-slate-800 dark:text-slate-100 focus:outline-none truncate leading-tight"
               >
-                <option value="ALL">Axe ({axes.length})</option>
+                <option value="ALL">
+                  {language === 'EN' ? `Axis (${axes.length})` : `Axe (${axes.length})`}
+                </option>
                 {axes.map(ax => (
                   <option key={ax.id} value={ax.id}>
                     {ax.name}
@@ -460,19 +545,21 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
           </div>
 
           {/* 2. Projet */}
-          <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 px-1 py-0.5 md:px-2 md:py-1 rounded border border-slate-200 dark:border-slate-700 h-5.5 md:h-auto">
+          <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 px-1.5 py-1 md:px-2 md:py-1 rounded border border-slate-200 dark:border-slate-700 h-7 md:h-auto">
             <Briefcase className="hidden md:block w-3 h-3 text-[#0284c7] shrink-0" />
             <div className="flex-1 min-w-0">
               <label className="hidden md:block text-[8px] font-bold uppercase text-slate-400 leading-none">
-                2. Projet
+                {language === 'EN' ? '2. Project' : '2. Projet'}
               </label>
               <select
                 value={filterProjectId}
                 onChange={e => setFilterProjectId(e.target.value)}
-                className="w-full bg-transparent text-[8px] sm:text-[11px] font-bold text-slate-800 dark:text-slate-100 focus:outline-none truncate leading-none"
+                className="w-full bg-transparent text-[13px] sm:text-[11px] font-bold text-slate-800 dark:text-slate-100 focus:outline-none truncate leading-tight"
               >
                 <option value="ALL">
-                  Projet ({availableProjects.length})
+                  {language === 'EN'
+                    ? `Project (${availableProjects.length})`
+                    : `Projet (${availableProjects.length})`}
                 </option>
                 {availableProjects.map(pr => (
                   <option key={pr.id} value={pr.id}>
@@ -484,7 +571,7 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
           </div>
 
           {/* 3. Phase de Projet */}
-          <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 px-1 py-0.5 md:px-2 md:py-1 rounded border border-slate-200 dark:border-slate-700 h-5.5 md:h-auto">
+          <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 px-1.5 py-1 md:px-2 md:py-1 rounded border border-slate-200 dark:border-slate-700 h-7 md:h-auto">
             <Layers className="hidden md:block w-3 h-3 text-[#0284c7] shrink-0" />
             <div className="flex-1 min-w-0">
               <label className="hidden md:block text-[8px] font-bold uppercase text-slate-400 leading-none">
@@ -493,7 +580,7 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
               <select
                 value={filterPhase}
                 onChange={e => setFilterPhase(e.target.value)}
-                className="w-full bg-transparent text-[8px] sm:text-[11px] font-bold text-slate-800 dark:text-slate-100 focus:outline-none truncate leading-none"
+                className="w-full bg-transparent text-[13px] sm:text-[11px] font-bold text-slate-800 dark:text-slate-100 focus:outline-none truncate leading-tight"
               >
                 <option value="ALL">Phases (5)</option>
                 {STANDARD_PHASES.map((ph, idx) => (
@@ -506,19 +593,28 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
           </div>
 
           {/* 4. Responsable / Réalisateur */}
-          <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 px-1 py-0.5 md:px-2 md:py-1 rounded border border-slate-200 dark:border-slate-700 h-5.5 md:h-auto">
+          <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 px-1.5 py-1 md:px-2 md:py-1 rounded border border-slate-200 dark:border-slate-700 h-7 md:h-auto">
             <UserCheck className="hidden md:block w-3 h-3 text-[#0284c7] shrink-0" />
             <div className="flex-1 min-w-0">
               <label className="hidden md:block text-[8px] font-bold uppercase text-slate-400 leading-none">
-                4. {mode === 'raci' ? 'Réalisateur' : 'Responsable'}
+                4.{' '}
+                {language === 'EN'
+                  ? mode === 'raci'
+                    ? 'Responsible (R)'
+                    : 'Owner'
+                  : mode === 'raci'
+                  ? 'Réalisateur'
+                  : 'Responsable'}
               </label>
               <select
                 value={filterAssignee}
                 onChange={e => setFilterAssignee(e.target.value)}
-                className="w-full bg-transparent text-[8px] sm:text-[11px] font-bold text-slate-800 dark:text-slate-100 focus:outline-none truncate leading-none"
+                className="w-full bg-transparent text-[13px] sm:text-[11px] font-bold text-slate-800 dark:text-slate-100 focus:outline-none truncate leading-tight"
               >
                 <option value="ALL">
-                  {mode === 'raci' ? 'Réal.' : 'Resp.'} ({allAssignees.length})
+                  {language === 'EN'
+                    ? `Owner (${allAssignees.length})`
+                    : `${mode === 'raci' ? 'Réal.' : 'Resp.'} (${allAssignees.length})`}
                 </option>
                 {allAssignees.map(resp => (
                   <option key={resp} value={resp}>
@@ -530,22 +626,32 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
           </div>
 
           {/* 5. Statut */}
-          <div className="col-span-2 sm:col-span-1 flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 px-1 py-0.5 md:px-2 md:py-1 rounded border border-slate-200 dark:border-slate-700 h-5.5 md:h-auto">
+          <div className="col-span-2 sm:col-span-1 flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 px-1.5 py-1 md:px-2 md:py-1 rounded border border-slate-200 dark:border-slate-700 h-7 md:h-auto">
             <CheckCircle2 className="hidden md:block w-3 h-3 text-[#0284c7] shrink-0" />
             <div className="flex-1 min-w-0">
               <label className="hidden md:block text-[8px] font-bold uppercase text-slate-400 leading-none">
-                5. Statut
+                {language === 'EN' ? '5. Status' : '5. Statut'}
               </label>
               <select
                 value={filterStatus}
                 onChange={e => setFilterStatus(e.target.value)}
-                className="w-full bg-transparent text-[8px] sm:text-[11px] font-bold text-slate-800 dark:text-slate-100 focus:outline-none truncate leading-none"
+                className="w-full bg-transparent text-[13px] sm:text-[11px] font-bold text-slate-800 dark:text-slate-100 focus:outline-none truncate leading-tight"
               >
-                <option value="ALL">Statut : Tous</option>
-                <option value="À faire">À Faire</option>
-                <option value="En cours">En Cours</option>
-                <option value="Bloqué">Bloqué</option>
-                <option value="Terminé">Terminé</option>
+                <option value="ALL">
+                  {language === 'EN' ? 'Status: All' : 'Statut : Tous'}
+                </option>
+                <option value="À faire">
+                  {language === 'EN' ? 'To Do' : 'À Faire'}
+                </option>
+                <option value="En cours">
+                  {language === 'EN' ? 'In Progress' : 'En Cours'}
+                </option>
+                <option value="Bloqué">
+                  {language === 'EN' ? 'Blocked' : 'Bloqué'}
+                </option>
+                <option value="Terminé">
+                  {language === 'EN' ? 'Completed' : 'Terminé'}
+                </option>
               </select>
             </div>
           </div>
@@ -571,16 +677,23 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                     style={{ position: 'sticky', top: 0, left: 48 }}
                     className="sticky top-0 left-[48px] z-40 bg-[#0c4a6e] w-[116px] min-w-[116px] max-w-[116px] sm:w-[136px] sm:min-w-[136px] sm:max-w-[136px] text-left border-r-2 border-[#90D5FF] border-b-2 border-[#90D5FF] shadow-[3px_0_6px_rgba(0,0,0,0.28)]"
                   >
-                    Activité / Jalon
+                    {language === 'EN' ? 'Activity / Milestone' : 'Activité / Jalon'}
                   </th>
                   {/* 3. Responsable */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-24 min-w-[84px] text-left border-r border-sky-800 border-b-2 border-[#90D5FF]"
                   >
-                    Responsable
+                    {language === 'EN' ? 'Owner' : 'Responsable'}
                   </th>
-                  {/* 4. Budget */}
+                  {/* 4. Livrable (between Responsable and Budget) */}
+                  <th
+                    style={{ position: 'sticky', top: 0 }}
+                    className="sticky top-0 z-30 bg-[#0c4a6e] w-28 min-w-[100px] text-left border-r border-sky-800 border-b-2 border-[#90D5FF]"
+                  >
+                    {language === 'EN' ? 'Deliverable' : 'Livrable'}
+                  </th>
+                  {/* 5. Budget */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-24 min-w-[84px] text-right border-r border-sky-800 border-b-2 border-[#90D5FF]"
@@ -592,35 +705,35 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-14 min-w-[50px] text-center border-r border-sky-800 border-b-2 border-[#90D5FF]"
                   >
-                    Mois
+                    {language === 'EN' ? 'Month' : 'Mois'}
                   </th>
                   {/* 6. Antécéd. */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-20 min-w-[70px] text-center border-r border-sky-800 border-b-2 border-[#90D5FF]"
                   >
-                    Antécéd.
+                    {language === 'EN' ? 'Predec.' : 'Antécéd.'}
                   </th>
                   {/* 7. Déb. Prév */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-28 min-w-[100px] text-center border-r border-sky-800 border-b-2 border-[#90D5FF]"
                   >
-                    Déb. Prév
+                    {language === 'EN' ? 'Plan. Start' : 'Déb. Prév'}
                   </th>
                   {/* 8. Fin Prév */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-28 min-w-[100px] text-center border-r border-sky-800 border-b-2 border-[#90D5FF]"
                   >
-                    Fin Prév
+                    {language === 'EN' ? 'Plan. End' : 'Fin Prév'}
                   </th>
                   {/* 9. Durée */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-14 min-w-[48px] text-center border-r border-sky-800 border-b-2 border-[#90D5FF]"
                   >
-                    Durée
+                    {language === 'EN' ? 'Dur.' : 'Durée'}
                   </th>
                   {/* 10. Actions */}
                   <th
@@ -646,77 +759,77 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                     style={{ position: 'sticky', top: 0, left: 48 }}
                     className="sticky top-0 left-[48px] z-40 bg-[#0c4a6e] w-[116px] min-w-[116px] max-w-[116px] sm:w-[136px] sm:min-w-[136px] sm:max-w-[136px] text-left border-r-2 border-[#90D5FF] border-b-2 border-[#90D5FF] shadow-[3px_0_6px_rgba(0,0,0,0.28)]"
                   >
-                    Activité / Jalon
+                    {language === 'EN' ? 'Activity / Milestone' : 'Activité / Jalon'}
                   </th>
                   {/* 3. Responsable */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-20 min-w-[76px] text-left border-r border-sky-800 border-b-2 border-[#90D5FF]"
                   >
-                    Responsable
+                    {language === 'EN' ? 'Owner' : 'Responsable'}
                   </th>
                   {/* 4. Statut */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-24 min-w-[84px] text-center border-r border-sky-800 border-b-2 border-[#90D5FF]"
                   >
-                    Statut
+                    {language === 'EN' ? 'Status' : 'Statut'}
                   </th>
                   {/* 5. Déb. Prév */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-20 min-w-[76px] text-center border-r border-sky-800 border-b-2 border-[#90D5FF]"
                   >
-                    Déb. Prév
+                    {language === 'EN' ? 'Plan. Start' : 'Déb. Prév'}
                   </th>
                   {/* 6. Fin Prév */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-20 min-w-[76px] text-center border-r border-sky-800 border-b-2 border-[#90D5FF]"
                   >
-                    Fin Prév
+                    {language === 'EN' ? 'Plan. End' : 'Fin Prév'}
                   </th>
                   {/* 7. Durée */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-12 min-w-[42px] text-center border-r border-sky-800 border-b-2 border-[#90D5FF]"
                   >
-                    Durée
+                    {language === 'EN' ? 'Dur.' : 'Durée'}
                   </th>
                   {/* 8. Déb. Exéc */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-28 min-w-[98px] text-center border-r border-sky-800 border-b-2 border-[#90D5FF]"
                   >
-                    Déb. Exéc
+                    {language === 'EN' ? 'Act. Start' : 'Déb. Exéc'}
                   </th>
                   {/* 9. Fin Exéc */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-28 min-w-[98px] text-center border-r border-sky-800 border-b-2 border-[#90D5FF]"
                   >
-                    Fin Exéc
+                    {language === 'EN' ? 'Act. End' : 'Fin Exéc'}
                   </th>
                   {/* 10. Réel */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-12 min-w-[44px] text-center border-r border-sky-800 border-b-2 border-[#90D5FF]"
                   >
-                    Réel
+                    {language === 'EN' ? 'Actual' : 'Réel'}
                   </th>
                   {/* 11. Écart début */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-20 min-w-[72px] text-center border-r border-sky-800 border-b-2 border-[#90D5FF]"
                   >
-                    Écart début
+                    {language === 'EN' ? 'Start Var.' : 'Écart début'}
                   </th>
                   {/* 12. Écart fin */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-20 min-w-[72px] text-center border-b-2 border-[#90D5FF]"
                   >
-                    Écart fin
+                    {language === 'EN' ? 'End Var.' : 'Écart fin'}
                   </th>
                 </tr>
               )}
@@ -735,35 +848,47 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                     style={{ position: 'sticky', top: 0, left: 48 }}
                     className="sticky top-0 left-[48px] z-40 bg-[#0c4a6e] w-[116px] min-w-[116px] max-w-[116px] sm:w-[136px] sm:min-w-[136px] sm:max-w-[136px] text-left border-r-2 border-[#90D5FF] border-b-2 border-[#90D5FF] shadow-[3px_0_6px_rgba(0,0,0,0.28)]"
                   >
-                    Activité / Jalon
+                    {language === 'EN' ? 'Activity / Milestone' : 'Activité / Jalon'}
                   </th>
                   {/* 3. Réalisateur (R) = Responsable (Multiple allowed) */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 w-44 min-w-[140px] text-left border-r border-sky-800 border-b-2 border-[#90D5FF] bg-[#075985]"
                   >
-                    Réalisateur (R) <span className="text-[8px] font-normal text-[#90D5FF]">(+ Responsables)</span>
+                    {language === 'EN' ? 'Responsible (R)' : 'Réalisateur (R)'}{' '}
+                    <span className="text-[8px] font-normal text-[#90D5FF]">
+                      {language === 'EN' ? '(+ Actors)' : '(+ Responsables)'}
+                    </span>
                   </th>
                   {/* 4. Autorité (A) (Single authority only!) */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-36 min-w-[115px] text-left border-r border-sky-800 border-b-2 border-[#90D5FF]"
                   >
-                    Autorité (A) <span className="text-[8px] font-normal text-amber-300">(1 seule)</span>
+                    {language === 'EN' ? 'Accountable (A)' : 'Autorité (A)'}{' '}
+                    <span className="text-[8px] font-normal text-amber-300">
+                      {language === 'EN' ? '(1 only)' : '(1 seule)'}
+                    </span>
                   </th>
                   {/* 5. Consulté (C) (Multiple allowed) */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-44 min-w-[140px] text-left border-r border-sky-800 border-b-2 border-[#90D5FF]"
                   >
-                    Consulté (C) <span className="text-[8px] font-normal text-[#90D5FF]">(+ Responsables)</span>
+                    {language === 'EN' ? 'Consulted (C)' : 'Consulté (C)'}{' '}
+                    <span className="text-[8px] font-normal text-[#90D5FF]">
+                      {language === 'EN' ? '(+ Actors)' : '(+ Responsables)'}
+                    </span>
                   </th>
                   {/* 6. Informé (I) (Multiple allowed) */}
                   <th
                     style={{ position: 'sticky', top: 0 }}
                     className="sticky top-0 z-30 bg-[#0c4a6e] w-44 min-w-[140px] text-left border-b-2 border-[#90D5FF]"
                   >
-                    Informé (I) <span className="text-[8px] font-normal text-[#90D5FF]">(+ Responsables)</span>
+                    {language === 'EN' ? 'Informed (I)' : 'Informé (I)'}{' '}
+                    <span className="text-[8px] font-normal text-[#90D5FF]">
+                      {language === 'EN' ? '(+ Actors)' : '(+ Responsables)'}
+                    </span>
                   </th>
                 </tr>
               )}
@@ -831,7 +956,7 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                             {mode === 'planification' && (
                               <>
                                 <span className="text-[9px] sm:text-[10px] font-mono font-bold text-slate-600 dark:text-slate-300">
-                                  Sous-total :{' '}
+                                  {language === 'EN' ? 'Subtotal:' : 'Sous-total :'}{' '}
                                   {formatCurrency(
                                     phaseBudgetFCFA,
                                     currency,
@@ -848,7 +973,11 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                                       )
                                     }
                                     className="w-5 h-5 sm:w-6 sm:h-6 rounded-lg bg-[#0c4a6e] hover:bg-[#075985] text-[#90D5FF] font-black text-xs sm:text-sm flex items-center justify-center shadow-xs transition-colors cursor-pointer"
-                                    title="Ajouter une activité ou un jalon dans cette phase"
+                                    title={
+                                      language === 'EN'
+                                        ? 'Add an activity or milestone in this phase'
+                                        : 'Ajouter une activité ou un jalon dans cette phase'
+                                    }
                                   >
                                     +
                                   </button>
@@ -868,9 +997,13 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                             colSpan={colSpanCount}
                             className="py-2 text-center text-[10px] text-slate-400 italic bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800"
                           >
-                            Aucun élément dans la phase « {phaseName} ».
+                            {language === 'EN'
+                              ? `No item in phase « ${phaseName} ».`
+                              : `Aucun élément dans la phase « ${phaseName} ».`}
                             {mode === 'planification' &&
-                              ' Cliquez sur « + » pour en ajouter.'}
+                              (language === 'EN'
+                                ? ' Click « + » to add one.'
+                                : ' Cliquez sur « + » pour en ajouter.')}
                           </td>
                         </tr>
                       ) : (
@@ -885,10 +1018,13 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                           const metrics = computeTaskMetrics(task, todayISO);
                           const startD = new Date(task.startDate);
                           const monthStr = !isNaN(startD.getTime())
-                            ? startD.toLocaleString('fr-FR', {
-                                month: 'short',
-                                year: '2-digit'
-                              })
+                            ? startD.toLocaleString(
+                                language === 'EN' ? 'en-US' : 'fr-FR',
+                                {
+                                  month: 'short',
+                                  year: '2-digit'
+                                }
+                              )
                             : '—';
 
                           const otherProjectTasks = projectTaskOptions.filter(
@@ -967,7 +1103,12 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                                 <td className="align-top border-r border-slate-200 dark:border-slate-800">
                                   <input
                                     type="text"
-                                    value={task.assignee}
+                                    value={task.assignee || ''}
+                                    placeholder={
+                                      language === 'EN'
+                                        ? 'Owner / Actor...'
+                                        : 'Responsable...'
+                                    }
                                     onChange={e =>
                                       onUpdateTask(projectId, task.id, {
                                         assignee: e.target.value
@@ -977,7 +1118,26 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                                   />
                                 </td>
 
-                                {/* 4. Budget */}
+                                {/* 4. Livrable (between Responsable and Budget) */}
+                                <td className="align-top border-r border-slate-200 dark:border-slate-800">
+                                  <input
+                                    type="text"
+                                    value={task.livrable || ''}
+                                    placeholder={
+                                      language === 'EN'
+                                        ? 'Expected deliverable...'
+                                        : 'Livrable attendu...'
+                                    }
+                                    onChange={e =>
+                                      onUpdateTask(projectId, task.id, {
+                                        livrable: e.target.value
+                                      })
+                                    }
+                                    className="w-full bg-transparent text-[10px] font-semibold text-slate-800 dark:text-slate-200 px-1 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-[#90D5FF]"
+                                  />
+                                </td>
+
+                                {/* 5. Budget */}
                                 <td className="align-top border-r border-slate-200 dark:border-slate-800">
                                   <input
                                     type="number"
@@ -1082,6 +1242,14 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                           // ==========================================
                           if (mode === 'processus') {
                             const effStatus = metrics.effectiveStatus;
+                            const displayedStartExec =
+                              effStatus === 'À faire'
+                                ? ''
+                                : metrics.effectiveActualStartDate;
+                            const displayedEndExec =
+                              effStatus === 'Terminé'
+                                ? metrics.effectiveActualEndDate
+                                : '';
 
                             const statusBadgeClass =
                               effStatus === 'Terminé'
@@ -1138,13 +1306,31 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                                   {task.assignee}
                                 </td>
 
-                                {/* 4. Statut (Read-only auto-calculated) */}
+                                {/* 4. Statut (Auto-calculated; click to toggle Bloqué) */}
                                 <td className="align-top text-center border-r border-slate-200 dark:border-slate-800">
-                                  <span
-                                    className={`inline-block px-1.5 py-0.5 rounded border text-[9px] font-black ${statusBadgeClass}`}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const nextBlocked = effStatus !== 'Bloqué';
+                                      onUpdateTask(projectId, task.id, {
+                                        manualBlocked: nextBlocked,
+                                        status: nextBlocked
+                                          ? 'Bloqué'
+                                          : displayedStartExec
+                                          ? 'En cours'
+                                          : 'À faire',
+                                        actualEndDate: ''
+                                      });
+                                    }}
+                                    title={
+                                      language === 'EN'
+                                        ? 'Auto-computed status (Click to toggle Blocked)'
+                                        : 'Statut automatique (Cliquer pour basculer Bloqué)'
+                                    }
+                                    className={`inline-block px-1.5 py-0.5 rounded border text-[9px] font-black cursor-pointer transition-transform active:scale-95 ${statusBadgeClass}`}
                                   >
                                     {effStatus}
-                                  </span>
+                                  </button>
                                 </td>
 
                                 {/* 5. Déb. Prév (Read-only) */}
@@ -1162,32 +1348,101 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                                   {metrics.plannedDurationLabel}
                                 </td>
 
-                                {/* 8. Déb. Exéc (Editable) */}
+                                {/* 8. Déb. Exéc (Editable, max = todayISO, empty if À faire) */}
                                 <td className="align-top text-center border-r border-slate-200 dark:border-slate-800">
                                   <input
                                     type="date"
-                                    value={task.actualStartDate || ''}
-                                    onChange={e =>
+                                    max={todayISO}
+                                    value={displayedStartExec}
+                                    onChange={e => {
+                                      const rawVal = e.target.value;
+                                      if (!rawVal) {
+                                        onUpdateTask(projectId, task.id, {
+                                          actualStartDate: '',
+                                          actualEndDate: '',
+                                          status: task.manualBlocked
+                                            ? 'Bloqué'
+                                            : 'À faire'
+                                        });
+                                        return;
+                                      }
+                                      const clampedStart =
+                                        rawVal > todayISO ? todayISO : rawVal;
+                                      const validEnd =
+                                        displayedEndExec &&
+                                        displayedEndExec <= todayISO &&
+                                        displayedEndExec >= clampedStart
+                                          ? displayedEndExec
+                                          : '';
                                       onUpdateTask(projectId, task.id, {
-                                        actualStartDate: e.target.value
-                                      })
-                                    }
+                                        actualStartDate: clampedStart,
+                                        actualEndDate: validEnd,
+                                        status: validEnd
+                                          ? 'Terminé'
+                                          : task.manualBlocked
+                                          ? 'Bloqué'
+                                          : 'En cours',
+                                        ...(validEnd
+                                          ? { manualBlocked: false }
+                                          : {})
+                                      });
+                                    }}
                                     className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-semibold text-slate-900 dark:text-white rounded px-1 py-0.5"
                                   />
                                 </td>
 
-                                {/* 9. Fin Exéc (Editable) */}
+                                {/* 9. Fin Exéc (Editable only when started & not blocked; max = todayISO; filling both Déb. Exéc & Fin Exéc marks Terminé) */}
                                 <td className="align-top text-center border-r border-slate-200 dark:border-slate-800">
-                                  <input
-                                    type="date"
-                                    value={task.actualEndDate || ''}
-                                    onChange={e =>
-                                      onUpdateTask(projectId, task.id, {
-                                        actualEndDate: e.target.value
-                                      })
-                                    }
-                                    className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-semibold text-slate-900 dark:text-white rounded px-1 py-0.5"
-                                  />
+                                  {effStatus === 'Bloqué' ||
+                                  effStatus === 'À faire' ||
+                                  !displayedStartExec ? (
+                                    <span
+                                      className="inline-block text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 py-0.5"
+                                      title={
+                                        effStatus === 'Bloqué'
+                                          ? language === 'EN'
+                                            ? 'Task is blocked: Actual End cannot be displayed'
+                                            : 'Tâche bloquée : Fin Exéc ne doit pas être affichée'
+                                          : language === 'EN'
+                                          ? 'Enter Actual Start first (<= Today)'
+                                          : 'Renseignez d’abord Déb. Exéc (<= Aujourd’hui)'
+                                      }
+                                    >
+                                      —
+                                    </span>
+                                  ) : (
+                                    <input
+                                      type="date"
+                                      min={displayedStartExec}
+                                      max={todayISO}
+                                      value={displayedEndExec}
+                                      onChange={e => {
+                                        const rawVal = e.target.value;
+                                        if (!rawVal) {
+                                          onUpdateTask(projectId, task.id, {
+                                            actualEndDate: '',
+                                            status: task.manualBlocked
+                                              ? 'Bloqué'
+                                              : 'En cours'
+                                          });
+                                          return;
+                                        }
+                                        const clampedEnd =
+                                          rawVal > todayISO ? todayISO : rawVal;
+                                        const finalEnd =
+                                          clampedEnd < displayedStartExec
+                                            ? displayedStartExec
+                                            : clampedEnd;
+                                        onUpdateTask(projectId, task.id, {
+                                          actualStartDate: displayedStartExec,
+                                          actualEndDate: finalEnd,
+                                          status: 'Terminé',
+                                          manualBlocked: false
+                                        });
+                                      }}
+                                      className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-semibold text-slate-900 dark:text-white rounded px-1 py-0.5"
+                                    />
+                                  )}
                                 </td>
 
                                 {/* 10. Réel (Auto) */}
@@ -1277,7 +1532,12 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                                 <RaciMultiActorCell
                                   value={task.assignee || ''}
                                   isPrimary
-                                  placeholder="+ Réalisateur (R)..."
+                                  language={language}
+                                  placeholder={
+                                    language === 'EN'
+                                      ? '+ Responsible (R)...'
+                                      : '+ Réalisateur (R)...'
+                                  }
                                   suggestions={allAssignees}
                                   datalistId={`raci-r-${task.id}`}
                                   onChange={newVal =>
@@ -1292,11 +1552,12 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                               <td className="align-top border-r border-slate-200 dark:border-slate-800">
                                 <input
                                   type="text"
-                                  value={
-                                    task.autorite ??
-                                    'Comité de Pilotage (COPIL)'
+                                  value={task.autorite || ''}
+                                  placeholder={
+                                    language === 'EN'
+                                      ? '1 single Accountable (A)...'
+                                      : '1 seule Autorité (A)...'
                                   }
-                                  placeholder="1 seule Autorité (A)..."
                                   onChange={e => {
                                     const singleAuthority = e.target.value
                                       .split(/[,;/]+/)[0];
@@ -1308,11 +1569,17 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                                 />
                               </td>
 
-                              {/* 5. Consulté (C) — Multi-actor addition in cell */}
+                              {/* 5. Consulté (C) — Multi-actor addition in cell + option Néant */}
                               <td className="align-top border-r border-slate-200 dark:border-slate-800">
                                 <RaciMultiActorCell
-                                  value={task.consulte ?? 'Experts Techniques'}
-                                  placeholder="+ Consulté (C)..."
+                                  value={task.consulte || ''}
+                                  allowNeant
+                                  language={language}
+                                  placeholder={
+                                    language === 'EN'
+                                      ? '+ Consulted (C) or None...'
+                                      : '+ Consulté (C) ou Néant...'
+                                  }
                                   suggestions={allAssignees}
                                   datalistId={`raci-c-${task.id}`}
                                   onChange={newVal =>
@@ -1323,11 +1590,17 @@ export const OperationalMatrices: React.FC<OperationalMatricesProps> = ({
                                 />
                               </td>
 
-                              {/* 6. Informé (I) — Multi-actor addition in cell */}
+                              {/* 6. Informé (I) — Multi-actor addition in cell + option Néant */}
                               <td className="align-top">
                                 <RaciMultiActorCell
-                                  value={task.informe ?? 'Parties Prenantes'}
-                                  placeholder="+ Informé (I)..."
+                                  value={task.informe || ''}
+                                  allowNeant
+                                  language={language}
+                                  placeholder={
+                                    language === 'EN'
+                                      ? '+ Informed (I) or None...'
+                                      : '+ Informé (I) ou Néant...'
+                                  }
                                   suggestions={allAssignees}
                                   datalistId={`raci-i-${task.id}`}
                                   onChange={newVal =>

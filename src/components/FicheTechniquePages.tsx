@@ -114,7 +114,7 @@ export const FicheTechniquePages: React.FC<FicheTechniquePagesProps> = ({
             label: task.type === 'jalon' ? `◆ ${task.name}` : task.name,
             type: task.type,
             projectName: proj.name,
-            assignee: task.assignee || '—',
+            assignee: (task.assignee || '').trim() || userProfile.fullName || '—',
             budget: Number(task.budget) || 0,
             monthLabel,
             monthNum,
@@ -122,8 +122,8 @@ export const FicheTechniquePages: React.FC<FicheTechniquePagesProps> = ({
             startDate: task.startDate || '—',
             endDate: task.endDate || '—',
             durationLabel: metrics.plannedDurationLabel,
-            actualStartDate: task.actualStartDate || '—',
-            actualEndDate: task.actualEndDate || '—',
+            actualStartDate: metrics.effectiveActualStartDate || '—',
+            actualEndDate: metrics.effectiveActualEndDate || '—',
             realDurationLabel: metrics.realDurationLabel,
             statusLabel: metrics.effectiveStatus,
             ecartDebutLabel: metrics.ecartDebutLabel,
@@ -195,7 +195,9 @@ export const FicheTechniquePages: React.FC<FicheTechniquePagesProps> = ({
         <AppLogo className="w-12 h-12" />
         <div>
           <div className="text-xs font-black uppercase tracking-wider text-[#0c4a6e]">
-            FAAB PLAN — FICHE TECHNIQUE & RÉSUMÉ EXÉCUTIF
+            {language === 'EN'
+              ? 'FAAB PLAN — TECHNICAL SHEET & EXECUTIVE SUMMARY'
+              : 'FAAB PLAN — FICHE TECHNIQUE & RÉSUMÉ EXÉCUTIF'}
           </div>
           <div className="text-[11px] font-bold text-slate-600">
             Dossier : {dossier.name} • {sectionTitle}
@@ -203,7 +205,10 @@ export const FicheTechniquePages: React.FC<FicheTechniquePagesProps> = ({
         </div>
       </div>
       <div className="text-right text-[10px] font-bold text-slate-500">
-        <div>Édité le {new Date().toLocaleDateString('fr-FR')}</div>
+        <div>
+          {language === 'EN' ? 'Issued on' : 'Édité le'}{' '}
+          {new Date().toLocaleDateString(language === 'EN' ? 'en-US' : 'fr-FR')}
+        </div>
         <div className="text-[#0284c7]">Horizon : {dossier.horizonPlan}</div>
       </div>
     </div>
@@ -211,8 +216,17 @@ export const FicheTechniquePages: React.FC<FicheTechniquePagesProps> = ({
 
   const renderPageFooter = (pageNum: number) => (
     <div className="mt-auto pt-4 border-t border-slate-200 flex items-center justify-between text-[10px] font-bold text-slate-500">
-      <span>FAAB PLAN • Document Exécutif Consolidé</span>
-      <span>{userProfile.institution || 'Usage Institutionnel & Universel'}</span>
+      <span>
+        {language === 'EN'
+          ? 'FAAB PLAN • Consolidated Executive Document'
+          : 'FAAB PLAN • Document Exécutif Consolidé'}
+      </span>
+      <span>
+        {userProfile.institution ||
+          (language === 'EN'
+            ? 'Institutional & Universal Use'
+            : 'Usage Institutionnel & Universel')}
+      </span>
       <span className="text-[#0c4a6e] font-black">
         Page {pageNum} / {totalPages}
       </span>
@@ -229,10 +243,14 @@ export const FicheTechniquePages: React.FC<FicheTechniquePagesProps> = ({
           </div>
           <div>
             <h2 className="text-sm sm:text-base font-black text-slate-900 dark:text-white uppercase tracking-tight">
-              Fiche Technique & Résumé Exécutif Multi-Pages (A4)
+              {language === 'EN'
+                ? 'Multi-Page Technical Sheet & Executive Summary (A4)'
+                : 'Fiche Technique & Résumé Exécutif Multi-Pages (A4)'}
             </h2>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Document Exécutif Consolidé très aéré ({totalPages} pages A4) : Présentation, Sommaire, Acronymes, Synthèse & 2 Graphiques, Gantt, Tableaux 1 & 2 et Réseau PERT
+              {language === 'EN'
+                ? `Consolidated Executive Document (${totalPages} A4 pages): Cover, Table of Contents, Acronyms, Executive Summary & 2 Charts, Gantt, Tables 1 & 2, and PERT Network`
+                : `Document Exécutif Consolidé très aéré (${totalPages} pages A4) : Présentation, Sommaire, Acronymes, Synthèse & 2 Graphiques, Gantt, Tableaux 1 & 2 et Réseau PERT`}
             </p>
           </div>
         </div>
@@ -244,7 +262,9 @@ export const FicheTechniquePages: React.FC<FicheTechniquePagesProps> = ({
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#0c4a6e] hover:bg-[#075985] text-white text-xs font-black uppercase tracking-wider shadow-sm transition-all cursor-pointer"
         >
           <Printer className="w-4 h-4 text-[#90D5FF]" />
-          Télécharger le PDF A4 ({totalPages} Pages)
+          {language === 'EN'
+            ? `Download A4 PDF (${totalPages} Pages)`
+            : `Télécharger le PDF A4 (${totalPages} Pages)`}
         </button>
       </div>
 
