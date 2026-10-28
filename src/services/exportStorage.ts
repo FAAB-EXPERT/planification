@@ -22,6 +22,22 @@ const VFS_STORE_NAME = 'faab_vfs_files';
 
 let memoryDirectoryHandle: any = null;
 let isInitializingHandle = false;
+let activeExportUserUid: string | null = null;
+
+export function setActiveExportUserUid(uid: string | null): void {
+  const cleaned = (uid || '').trim() || null;
+  if (activeExportUserUid !== cleaned) {
+    memoryDirectoryHandle = null;
+    isInitializingHandle = false;
+  }
+  activeExportUserUid = cleaned;
+}
+
+function getScopedRootHandleKey(): string {
+  return activeExportUserUid
+    ? `${ROOT_HANDLE_KEY}_${activeExportUserUid}`
+    : ROOT_HANDLE_KEY;
+}
 
 /**
  * Nettoie le nom de programme pour créer un sous-dossier valide sur tous les systèmes de fichiers (Windows, Mac, Linux)
@@ -78,7 +94,7 @@ export async function storeDirectoryHandle(handle: any): Promise<void> {
   try {
     const db = await openHandleDb();
     const tx = db.transaction(STORE_NAME, 'readwrite');
-    tx.objectStore(STORE_NAME).put(handle, ROOT_HANDLE_KEY);
+    tx.objectStore(STORE_NAME).put(handle, getScopedRootHandleKey());
   } catch {
     // Si IndexedDB ne sérialise pas le handle sur ce navigateur, le cache mémoire reste actif
   }
@@ -88,12 +104,13 @@ export async function storeDirectoryHandle(handle: any): Promise<void> {
  * Précharge le handle stocké au démarrage de l'application (sans bloquer le fil d'exécution)
  */
 export async function initExportStorage(): Promise<void> {
-  if (memoryDirectoryHandle || isInitializingHandle) return;
+  if (!activeExportUserUid || memoryDirectoryHandle || isInitializingHandle)
+    return;
   isInitializingHandle = true;
   try {
     const db = await openHandleDb();
     const tx = db.transaction(STORE_NAME, 'readonly');
-    const req = tx.objectStore(STORE_NAME).get(ROOT_HANDLE_KEY);
+    const req = tx.objectStore(STORE_NAME).get(getScopedRootHandleKey());
     req.onsuccess = () => {
       if (req.result) {
         memoryDirectoryHandle = req.result;
@@ -117,11 +134,12 @@ export function getStoredDirectoryHandleSync(): any | null {
 
 export async function getStoredDirectoryHandle(): Promise<any | null> {
   if (memoryDirectoryHandle) return memoryDirectoryHandle;
+  if (!activeExportUserUid) return null;
   try {
     const db = await openHandleDb();
     return new Promise(resolve => {
       const tx = db.transaction(STORE_NAME, 'readonly');
-      const req = tx.objectStore(STORE_NAME).get(ROOT_HANDLE_KEY);
+      const req = tx.objectStore(STORE_NAME).get(getScopedRootHandleKey());
       req.onsuccess = () => {
         memoryDirectoryHandle = req.result || null;
         resolve(memoryDirectoryHandle);
@@ -134,11 +152,12 @@ export async function getStoredDirectoryHandle(): Promise<any | null> {
 }
 
 /**
- * Enregistre un fichier dans le VFS (Virtual File System) local IndexedDB pour ce programme.
- * Permet l'écrasement systématique sans suffixe (1, 2) et l'exportation en ZIP de l'arborescence complète faab-plan/{programme}/.
+ * Enregistre un fichier dans le VFS (Virtual File System) local IndexedDB pour ce programme,
+ * strictement isolé par utilisateur (ownerUid).
  */
 interface VfsRecord {
-  id: string; // "programme/fileName"
+  id: string; // "ownerUid::programme/fileName"
+  ownerUid?: string;
   programFolder: string;
   fileName: string;
   mimeType: string;
@@ -152,30 +171,37 @@ async function recordFileInVfs(
   blob: Blob,
   mimeType: string
 ): Promise<void> {
+  const ownerUid = activeExportUserUid || 'anon';
   try {
     const db = await openHandleDb();
-    const tx = db.transaction(VFS_STORE_NAME, 'readwrite');
-    const store = tx.objectStore(VFS_STORE_NAME);
-    const id = `${programFolder}/${fileName}`;
-    const record: VfsRecord = {
-      id,
-      programFolder,
-      fileName,
-      mimeType,
-      blob,
-      updatedAt: Date.now()
-    };
-    store.put(record);
+    await new Promise<void>(resolve => {
+      const tx = db.transaction(VFS_STORE_NAME, 'readwrite');
+      const store = tx.objectStore(VFS_STORE_NAME);
+      const id = `${ownerUid}::${programFolder}/${fileName}`;
+      const record: VfsRecord = {
+        id,
+        ownerUid,
+        programFolder,
+        fileName,
+        mimeType,
+        blob,
+        updatedAt: Date.now()
+      };
+      store.put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
   } catch (err) {
     console.warn('VFS record warning:', err);
   }
 }
 
 /**
- * Récupère la liste de tous les fichiers du VFS pour un programme donné
+ * Récupère la liste de tous les fichiers du VFS pour un programme donné appartenant exclusivement à l'utilisateur actif
  */
 export async function getVfsFilesForProgram(programName: string): Promise<VfsRecord[]> {
   const safeProgFolder = sanitizeProgramFolderName(programName);
+  const ownerUid = activeExportUserUid || 'anon';
   try {
     const db = await openHandleDb();
     return new Promise(resolve => {
@@ -184,7 +210,9 @@ export async function getVfsFilesForProgram(programName: string): Promise<VfsRec
       const req = store.getAll();
       req.onsuccess = () => {
         const list: VfsRecord[] = (req.result || []).filter(
-          (r: VfsRecord) => r.programFolder === safeProgFolder
+          (r: VfsRecord) =>
+            r.programFolder === safeProgFolder &&
+            (r.ownerUid || 'anon') === ownerUid
         );
         resolve(list);
       };
@@ -206,7 +234,7 @@ export async function pickFaabPlanFolder(): Promise<any | null> {
     const handle = await (window as any).showDirectoryPicker({
       id: 'faab-plan-workspace',
       mode: 'readwrite',
-      startIn: 'documents'
+      startIn: 'downloads'
     });
     if (handle) {
       await storeDirectoryHandle(handle);
@@ -262,7 +290,71 @@ export interface SaveProgramFileResult {
 }
 
 /**
- * Enregistre un fichier (JSON, CSV, PDF) selon la règle stricte :
+ * Prépare l'accès au dossier avant une tâche lourde (ex: génération jsPDF multi-pages)
+ * afin de ne jamais perdre le geste utilisateur (userActivation) si le serveur local n'est pas actif.
+ */
+export async function ensureProgramDirectoryAccessBeforeHeavyTask(): Promise<void> {
+  if (memoryDirectoryHandle) return;
+
+  // 1. Vérifie si un handle est déjà stocké dans IndexedDB
+  const existing = await getStoredDirectoryHandle();
+  if (existing) {
+    try {
+      if (typeof existing.queryPermission === 'function') {
+        const perm = await existing.queryPermission({ mode: 'readwrite' });
+        if (perm === 'granted') return;
+      } else {
+        return;
+      }
+    } catch {
+      // continue
+    }
+  }
+
+  // 2. Vérifie rapidement si le serveur local (/Downloads/faab-plan) est actif
+  const endpoints = [
+    '/__faab_save_export',
+    '/api/faab-save-export',
+    'http://localhost:3000/__faab_save_export'
+  ];
+  for (const ep of endpoints) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 250);
+      const res = await fetch(ep, { method: 'GET', signal: ctrl.signal, mode: 'cors' });
+      clearTimeout(timer);
+      if (res.ok) return;
+    } catch {
+      // essai suivant
+    }
+  }
+
+  // 3. Si hors serveur local et showDirectoryPicker est supporté, demander l'accès tant que le geste utilisateur est actif
+  if (typeof (window as any).showDirectoryPicker === 'function') {
+    try {
+      if (existing && typeof existing.requestPermission === 'function') {
+        const perm = await existing.requestPermission({ mode: 'readwrite' });
+        if (perm === 'granted') {
+          memoryDirectoryHandle = existing;
+          return;
+        }
+      }
+      const handle = await (window as any).showDirectoryPicker({
+        id: 'faab-plan-workspace',
+        mode: 'readwrite',
+        startIn: 'downloads'
+      });
+      if (handle) {
+        await storeDirectoryHandle(handle);
+      }
+    } catch {
+      // L'utilisateur a annulé ou le contexte est restreint
+    }
+  }
+}
+
+/**
+ * Enregistre un fichier (JSON, CSV, PDF, VCF) selon la règle stricte :
  *
  * Dossier racine : "faab-plan"
  *   └── Sous-dossier : "{Nom du Programme}"
@@ -271,8 +363,8 @@ export interface SaveProgramFileResult {
  * 1. Si le nom du programme est différent -> création d'un nouveau sous-dossier avec le nom du programme.
  * 2. Si le nom du programme est identique -> écrasement et remplacement du fichier le plus ancien
  *    par le dernier fichier enregistré (aucun suffixe "1", "2", "3"...).
- * 3. Écriture directe sur le disque local via File System Access API lorsque le dossier est accessible.
- * 4. Fallback intelligent en environnement restreint (ex: iframe) garantissant le respect de l'arborescence.
+ * 3. Écriture directe sur le disque local via le serveur local ou File System Access API.
+ * 4. Fallback intelligent en environnement restreint garantissant le respect de l'arborescence.
  */
 export async function saveProgramFile(
   options: SaveProgramFileOptions
@@ -292,13 +384,48 @@ export async function saveProgramFile(
     blob = new Blob([content as any], { type: mimeType });
   }
 
-  // Enregistrement dans le VFS persistant (écrase toujours l'ancienne version sous la même clé id)
-  await recordFileInVfs(safeProgFolder, cleanName, blob, mimeType);
+  // Enregistrement asynchrone dans le VFS persistant (écrase toujours l'ancienne version sous la même clé id)
+  void recordFileInVfs(safeProgFolder, cleanName, blob, mimeType);
+
+  // 0. ÉCRITURE DIRECTE DANS ~/Downloads/faab-plan/{Nom du Programme}/ (Serveur local Mac / Finder / Next.js Route)
+  const localSaveEndpoints = [
+    '/__faab_save_export',
+    '/api/faab-save-export',
+    'http://localhost:3000/__faab_save_export'
+  ];
+  for (const endpoint of localSaveEndpoints) {
+    try {
+      const localRes = await fetch(endpoint, {
+        method: 'POST',
+        mode: 'cors',
+        headers: {
+          'Content-Type': mimeType || 'application/octet-stream',
+          'X-Faab-Program': encodeURIComponent(safeProgFolder),
+          'X-Faab-Filename': encodeURIComponent(cleanName),
+          'X-Faab-Open-Finder': 'true'
+        },
+        body: blob
+      });
+      if (localRes.ok) {
+        const data = await localRes.json();
+        if (data && data.success) {
+          return {
+            success: true,
+            mode: 'directory',
+            path: data.path || logicalPath,
+            fileName: cleanName
+          };
+        }
+      }
+    } catch {
+      // Essai de l'endpoint suivant ou passage au File System Access API
+    }
+  }
 
   // 1. TENTATIVE D'ÉCRITURE DIRECTE DANS LE DOSSIER SUR DISQUE
   if (typeof (window as any).showDirectoryPicker === 'function') {
     try {
-      let rootHandle = memoryDirectoryHandle;
+      let rootHandle = memoryDirectoryHandle || (await getStoredDirectoryHandle());
 
       // Si le handle n'est pas encore en mémoire, le demander directement (geste utilisateur actif)
       if (!rootHandle) {
@@ -306,7 +433,7 @@ export async function saveProgramFile(
           rootHandle = await (window as any).showDirectoryPicker({
             id: 'faab-plan-workspace',
             mode: 'readwrite',
-            startIn: 'documents'
+            startIn: 'downloads'
           });
           if (rootHandle) {
             await storeDirectoryHandle(rootHandle);

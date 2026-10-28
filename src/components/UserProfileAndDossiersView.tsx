@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   User,
   Building2,
@@ -15,7 +15,13 @@ import {
   ArrowRight,
   AlertTriangle,
   Pencil,
-  Check
+  Check,
+  KeyRound,
+  Lock,
+  Fingerprint,
+  ScanFace,
+  RefreshCw,
+  ShieldCheck
 } from 'lucide-react';
 import {
   UserProfile,
@@ -25,6 +31,22 @@ import {
 } from '../types';
 import { AppLogo } from './AppLogo';
 import { formatCurrency } from '../i18n';
+import {
+  FirebaseUser,
+  auth,
+  googleProvider,
+  signInWithPopup,
+  mapFirebaseSdkUser,
+  DEFAULT_SUPER_ADMIN_PIN
+} from '../firebase';
+import {
+  verifyAccountPinWithFirestore,
+  updateAccountPin,
+  resetAccountPinToDefault,
+  syncAccountSecurityFromFirestore,
+  registerDeviceBiometrics,
+  hasRegisteredBiometricCredential
+} from '../services/superAdminService';
 
 interface UserProfileViewProps {
   userProfile: UserProfile;
@@ -34,6 +56,8 @@ interface UserProfileViewProps {
   language: LanguageCode;
   setLanguage: (l: LanguageCode) => void;
   onNavigateTab: (tab: string) => void;
+  currentUser?: FirebaseUser | null;
+  onShowToast?: (msg: string) => void;
 }
 
 export const UserProfileView: React.FC<UserProfileViewProps> = ({
@@ -43,9 +67,199 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   setCurrency,
   language,
   setLanguage,
-  onNavigateTab
+  onNavigateTab,
+  currentUser,
+  onShowToast
 }) => {
   const isEn = language === 'EN';
+
+  // États pour le changement et la réinitialisation du Code PIN / Mot de passe de l'utilisateur
+  const [oldPinInput, setOldPinInput] = useState<string>('');
+  const [newPinInput, setNewPinInput] = useState<string>('');
+  const [confirmPinInput, setConfirmPinInput] = useState<string>('');
+  const [pinStatusMsg, setPinStatusMsg] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
+  const [isUpdatingPin, setIsUpdatingPin] = useState<boolean>(false);
+  const [isResettingPin, setIsResettingPin] = useState<boolean>(false);
+  const [biometricRegistered, setBiometricRegistered] = useState<boolean>(() =>
+    hasRegisteredBiometricCredential(currentUser?.email || userProfile.email)
+  );
+
+  useEffect(() => {
+    if (currentUser) {
+      void syncAccountSecurityFromFirestore(currentUser).then(() => {
+        setBiometricRegistered(
+          hasRegisteredBiometricCredential(currentUser.email)
+        );
+      });
+    }
+  }, [currentUser?.uid, currentUser?.email]);
+
+  const handleUpdateUserPinSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinStatusMsg(null);
+    const targetUser = currentUser || {
+      uid: undefined,
+      email: userProfile.email
+    };
+
+    try {
+      setIsUpdatingPin(true);
+      const isOldValid = await verifyAccountPinWithFirestore(
+        oldPinInput,
+        targetUser
+      );
+      if (!isOldValid) {
+        setPinStatusMsg({
+          type: 'error',
+          text: isEn
+            ? 'Current PIN code is incorrect (default is "0000"). You can also reset via Google Sign-In below.'
+            : 'Le code PIN actuel est incorrect (par défaut « 0000 »). Vous pouvez aussi le réinitialiser via Google Sign-In ci-dessous.'
+        });
+        return;
+      }
+
+      if (newPinInput.trim().length < 4) {
+        setPinStatusMsg({
+          type: 'error',
+          text: isEn
+            ? 'New PIN code must contain at least 4 characters.'
+            : 'Le nouveau code PIN doit comporter au moins 4 caractères.'
+        });
+        return;
+      }
+
+      if (newPinInput.trim() !== confirmPinInput.trim()) {
+        setPinStatusMsg({
+          type: 'error',
+          text: isEn
+            ? 'New PIN confirmation does not match.'
+            : 'La confirmation du nouveau code PIN ne correspond pas.'
+        });
+        return;
+      }
+
+      await updateAccountPin(newPinInput.trim(), targetUser);
+      setOldPinInput('');
+      setNewPinInput('');
+      setConfirmPinInput('');
+      const okMsg = isEn
+        ? 'Your new PIN code / password has been saved and synchronized in Cloud Firestore!'
+        : 'Votre nouveau Code PIN / mot de passe a été enregistré et synchronisé dans Cloud Firestore !';
+      setPinStatusMsg({ type: 'success', text: okMsg });
+      onShowToast?.(okMsg);
+    } catch (err: any) {
+      setPinStatusMsg({
+        type: 'error',
+        text:
+          err?.message ||
+          (isEn
+            ? 'Error updating PIN code.'
+            : 'Erreur lors de la mise à jour du code PIN.')
+      });
+    } finally {
+      setIsUpdatingPin(false);
+    }
+  };
+
+  const handleResetUserPinViaGoogleSignIn = async () => {
+    setPinStatusMsg(null);
+    const expectedEmail = (
+      currentUser?.email ||
+      userProfile.email ||
+      ''
+    )
+      .trim()
+      .toLowerCase();
+
+    try {
+      setIsResettingPin(true);
+      if (expectedEmail) {
+        googleProvider.setCustomParameters({
+          login_hint: expectedEmail,
+          prompt: 'select_account'
+        });
+      } else {
+        googleProvider.setCustomParameters({ prompt: 'select_account' });
+      }
+
+      // 1. Sollicitation de Google Sign-In pour vérifier l'identité du compte Gmail
+      const res = await signInWithPopup(auth, googleProvider);
+      const signedEmail = (res.user?.email || '').trim().toLowerCase();
+
+      if (expectedEmail && signedEmail !== expectedEmail) {
+        setPinStatusMsg({
+          type: 'error',
+          text: isEn
+            ? `Verification refused: please authenticate with your account (${expectedEmail}).`
+            : `Vérification refusée : veuillez vous authentifier avec votre compte (${expectedEmail}).`
+        });
+        return;
+      }
+
+      const mapped = mapFirebaseSdkUser(res.user);
+
+      // 2. Sollicitation de Cloud Firestore (/user_security_config/{uid}) pour réinitialiser ou définir le nouveau PIN
+      if (newPinInput.trim().length >= 4) {
+        await updateAccountPin(newPinInput.trim(), mapped);
+        setOldPinInput('');
+        setNewPinInput('');
+        setConfirmPinInput('');
+        const msg = isEn
+          ? 'Google Sign-In verified! Your new PIN has been saved in Cloud Firestore.'
+          : 'Identité Google Sign-In vérifiée ! Votre nouveau Code PIN a été enregistré dans Cloud Firestore.';
+        setPinStatusMsg({ type: 'success', text: msg });
+        onShowToast?.(msg);
+      } else {
+        await resetAccountPinToDefault(mapped);
+        setOldPinInput('');
+        setNewPinInput('');
+        setConfirmPinInput('');
+        const msg = isEn
+          ? 'Google Sign-In verified! Your PIN code has been reset to default "0000" in Cloud Firestore.'
+          : 'Identité Google Sign-In vérifiée ! Votre Code PIN a été réinitialisé à « 0000 » dans Cloud Firestore.';
+        setPinStatusMsg({ type: 'success', text: msg });
+        onShowToast?.(msg);
+      }
+    } catch (err: any) {
+      setPinStatusMsg({
+        type: 'error',
+        text:
+          err?.message ||
+          (isEn
+            ? 'Google Sign-In verification cancelled or failed.'
+            : 'Vérification Google Sign-In annulée ou échouée.')
+      });
+    } finally {
+      setIsResettingPin(false);
+    }
+  };
+
+  const handleRegisterUserBiometrics = async () => {
+    setPinStatusMsg(null);
+    const email = currentUser?.email || userProfile.email;
+    const name = userProfile.fullName || currentUser?.displayName || email;
+    try {
+      const ok = await registerDeviceBiometrics(email, name);
+      if (ok) {
+        setBiometricRegistered(true);
+        const msg = isEn
+          ? 'Touch ID / Face ID activated on this device!'
+          : 'Touch ID / Face ID activé avec succès sur cet appareil !';
+        setPinStatusMsg({ type: 'success', text: msg });
+        onShowToast?.(msg);
+      }
+    } catch {
+      setPinStatusMsg({
+        type: 'error',
+        text: isEn
+          ? 'Touch ID / Face ID could not be activated in this browser context.'
+          : 'Touch ID / Face ID n’a pas pu être activé dans ce contexte navigateur.'
+      });
+    }
+  };
 
   const handleCvPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -749,6 +963,205 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
               placeholder="Ex: 3 personnes de référence (Nom, Fonction, Institution, Email, Tél)..."
               className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-[10px] sm:text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#90D5FF]"
             />
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION SÉCURITÉ DU COMPTE UTILISATEUR : CHANGEMENT DU CODE PIN / MOT DE PASSE, RÉINITIALISATION GOOGLE SIGN-IN & FIRESTORE, ET BIOMÉTRIE */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border-2 border-[#90D5FF] dark:border-sky-800 p-5 sm:p-6 shadow-sm space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+          <div>
+            <h3 className="text-sm font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
+              <KeyRound className="w-4 h-4 text-[#0284c7] dark:text-[#90D5FF]" />
+              {isEn
+                ? 'User Account Security: Change PIN Code / Password, Google Sign-In & Firestore Reset, Touch ID / Face ID'
+                : 'Sécurité du Compte Utilisateur : Modifier le Code PIN / Mot de Passe, Réinitialisation Google Sign-In & Firestore, Touch ID / Face ID'}
+            </h3>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              {isEn
+                ? 'Change your secret PIN code (default "0000"), reset it via Google Sign-In & Cloud Firestore (/user_security_config), or enable Touch ID / Face ID on your device.'
+                : 'Modifiez votre Code PIN secret (par défaut « 0000 »), réinitialisez-le en sollicitant Google Sign-In et Cloud Firestore (/user_security_config), ou activez Touch ID / Face ID sur votre appareil.'}
+            </p>
+          </div>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-sky-50 dark:bg-sky-950/60 border border-[#90D5FF]/60 text-[10px] font-black uppercase text-[#0c4a6e] dark:text-[#90D5FF]">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+            {currentUser?.email || userProfile.email}
+          </span>
+        </div>
+
+        {pinStatusMsg && (
+          <div
+            className={`p-3.5 rounded-xl border text-xs font-bold flex items-start gap-2.5 ${
+              pinStatusMsg.type === 'success'
+                ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200'
+                : 'bg-rose-50 dark:bg-rose-950/60 border-rose-300 dark:border-rose-700 text-rose-800 dark:text-rose-200'
+            }`}
+          >
+            {pinStatusMsg.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+            )}
+            <span>{pinStatusMsg.text}</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {/* Formulaire de modification du Code PIN / Mot de passe */}
+          <form
+            onSubmit={handleUpdateUserPinSubmit}
+            className="lg:col-span-2 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-4"
+          >
+            <div className="text-xs font-black uppercase tracking-wider text-[#0c4a6e] dark:text-[#90D5FF] flex items-center gap-2">
+              <Lock className="w-4 h-4" />
+              <span>
+                {isEn
+                  ? '1. Change my PIN Code / Access Password'
+                  : '1. Changer mon Code PIN / Mot de Passe d’Accès'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                  {isEn
+                    ? 'Current PIN (default 0000)'
+                    : 'Code PIN Actuel (défaut 0000)'}
+                </label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={12}
+                  value={oldPinInput}
+                  onChange={e => setOldPinInput(e.target.value)}
+                  placeholder={DEFAULT_SUPER_ADMIN_PIN}
+                  className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-black tracking-widest text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#90D5FF]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                  {isEn ? 'New PIN Code' : 'Nouveau Code PIN'}
+                </label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={12}
+                  value={newPinInput}
+                  onChange={e => setNewPinInput(e.target.value)}
+                  placeholder="••••"
+                  className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-black tracking-widest text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#90D5FF]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                  {isEn ? 'Confirm New PIN' : 'Confirmer le Nouveau PIN'}
+                </label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={12}
+                  value={confirmPinInput}
+                  onChange={e => setConfirmPinInput(e.target.value)}
+                  placeholder="••••"
+                  className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-black tracking-widest text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#90D5FF]"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <button
+                type="submit"
+                disabled={isUpdatingPin}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0c4a6e] hover:bg-[#075985] disabled:opacity-50 text-white border border-[#90D5FF] text-xs font-black uppercase tracking-wider shadow-sm transition-all cursor-pointer"
+              >
+                <KeyRound className="w-4 h-4 text-[#90D5FF]" />
+                <span>
+                  {isUpdatingPin
+                    ? isEn
+                      ? 'Saving to Firestore...'
+                      : 'Enregistrement Firestore...'
+                    : isEn
+                    ? 'Save New PIN Code'
+                    : 'Enregistrer le Nouveau Code PIN'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isResettingPin}
+                onClick={handleResetUserPinViaGoogleSignIn}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 border border-amber-300 text-xs font-black uppercase tracking-wider shadow-sm transition-all cursor-pointer"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>
+                  {isResettingPin
+                    ? isEn
+                      ? 'Verifying Google Sign-In & Firestore...'
+                      : 'Vérification Google Sign-In & Firestore...'
+                    : isEn
+                    ? 'Forgot PIN? Reset via Google Sign-In & Firestore'
+                    : 'Code PIN oublié ? Réinitialiser via Google Sign-In & Firestore'}
+                </span>
+              </button>
+            </div>
+          </form>
+
+          {/* Carte Biométrie Touch ID / Face ID */}
+          <div className="p-4 rounded-2xl bg-sky-50/70 dark:bg-slate-800 border border-[#90D5FF]/60 flex flex-col justify-between space-y-4">
+            <div className="space-y-2">
+              <div className="text-xs font-black uppercase tracking-wider text-[#0c4a6e] dark:text-[#90D5FF] flex items-center gap-2">
+                <Fingerprint className="w-4 h-4" />
+                <ScanFace className="w-4 h-4" />
+                <span>
+                  {isEn
+                    ? '2. Touch ID / Face ID Unlock'
+                    : '2. Déverrouillage Touch ID / Face ID'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                {isEn
+                  ? 'Enable biometric authentication (Touch ID, Face ID, Windows Hello, Android Fingerprint) to unlock your F-PLLAN workspace on this device.'
+                  : 'Activez l’empreinte biométrique (Touch ID, Face ID, Windows Hello ou empreinte Android) pour déverrouiller rapidement votre session sur cet appareil.'}
+              </p>
+              <div className="pt-1">
+                <span
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
+                    biometricRegistered
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300'
+                      : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  {biometricRegistered
+                    ? isEn
+                      ? 'Touch ID / Face ID Active'
+                      : 'Touch ID / Face ID Actif'
+                    : isEn
+                    ? 'Not configured on this device'
+                    : 'Non configuré sur cet appareil'}
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleRegisterUserBiometrics}
+              className="w-full py-2.5 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white border border-emerald-400 text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+            >
+              <Fingerprint className="w-4 h-4" />
+              <ScanFace className="w-4 h-4" />
+              <span>
+                {biometricRegistered
+                  ? isEn
+                    ? 'Reconfigure Touch ID / Face ID'
+                    : 'Reconfigurer Touch ID / Face ID'
+                  : isEn
+                  ? 'Activate Touch ID / Face ID'
+                  : 'Activer Touch ID / Face ID'}
+              </span>
+            </button>
           </div>
         </div>
       </div>

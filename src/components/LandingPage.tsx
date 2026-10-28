@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ShieldCheck,
   Calendar,
@@ -39,7 +39,14 @@ import {
   ArrowRight,
   TrendingUp,
   SlidersHorizontal,
-  FileDown
+  FileDown,
+  Monitor,
+  Smartphone,
+  Tablet,
+  RefreshCw,
+  Share,
+  PlusSquare,
+  X
 } from 'lucide-react';
 import { AppLogo } from './AppLogo';
 import { LanguageCode } from '../types';
@@ -63,6 +70,100 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const isEn = language === 'EN';
   const t = translations[language];
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // États PWA ("F-PLLAN") & Mise à jour sur la page d'accueil
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(() =>
+    typeof window !== 'undefined' ? (window as any).__fpllanDeferredPrompt || null : null
+  );
+  const [activeInstallHelper, setActiveInstallHelper] = useState<
+    'apple' | 'desktop' | 'android' | null
+  >(null);
+  const [isUpdatingApp, setIsUpdatingApp] = useState<boolean>(false);
+  const [pwaNotice, setPwaNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    const syncPrompt = () => {
+      setDeferredPrompt((window as any).__fpllanDeferredPrompt || null);
+    };
+    const onInstalled = () => {
+      setDeferredPrompt(null);
+      setPwaNotice(
+        isEn
+          ? '✓ Application "F-PLLAN" successfully installed on your device!'
+          : '✓ L’application « F-PLLAN » a été installée avec succès sur votre appareil !'
+      );
+    };
+    window.addEventListener('beforeinstallprompt', syncPrompt);
+    window.addEventListener('fpllan-pwa-installable', syncPrompt);
+    window.addEventListener('fpllan-pwa-installed', onInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', syncPrompt);
+      window.removeEventListener('fpllan-pwa-installable', syncPrompt);
+      window.removeEventListener('fpllan-pwa-installed', onInstalled);
+    };
+  }, [isEn]);
+
+  const handleInstallPwaPlatform = async (platform: 'desktop' | 'android' | 'apple') => {
+    if (platform === 'apple') {
+      setActiveInstallHelper(prev => (prev === 'apple' ? null : 'apple'));
+      return;
+    }
+    const promptEvent = deferredPrompt || (window as any).__fpllanDeferredPrompt;
+    if (promptEvent && typeof promptEvent.prompt === 'function') {
+      try {
+        await promptEvent.prompt();
+        const choice = await promptEvent.userChoice;
+        if (choice && choice.outcome === 'accepted') {
+          (window as any).__fpllanDeferredPrompt = null;
+          setDeferredPrompt(null);
+          setActiveInstallHelper(null);
+          setPwaNotice(
+            isEn
+              ? '✓ Installation of "F-PLLAN" launched!'
+              : '✓ Téléchargement et installation de « F-PLLAN » lancés !'
+          );
+          return;
+        }
+      } catch {
+        // fall through to helper explanation
+      }
+    }
+    setActiveInstallHelper(prev => (prev === platform ? null : platform));
+  };
+
+  const handleReloadAndUpdateApp = async () => {
+    setIsUpdatingApp(true);
+    setPwaNotice(
+      isEn
+        ? 'Updating and reloading F-PLLAN...'
+        : 'Mise à jour et rechargement de l’application F-PLLAN en cours...'
+    );
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(
+          regs.map(async reg => {
+            try {
+              reg.active?.postMessage({ type: 'CLEAR_AND_UPDATE' });
+              reg.waiting?.postMessage({ type: 'SKIP_WAITING' });
+              await reg.update();
+            } catch {
+              // ignore
+            }
+          })
+        );
+      }
+      if ('caches' in window) {
+        const keys = await window.caches.keys();
+        await Promise.all(keys.map(k => window.caches.delete(k)));
+      }
+    } catch {
+      // ignore
+    }
+    setTimeout(() => {
+      window.location.reload();
+    }, 350);
+  };
 
   // Bidirectional Scroll Reveal (triggers both when scrolling down AND when scrolling up, with direction awareness)
   useEffect(() => {
@@ -779,6 +880,308 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </p>
               </div>
             </div>
+          </div>
+
+          {/* ========================================================================= */}
+          {/* BLOC D'INSTALLATION PWA MULTI-PLATEFORMES (« F-PLLAN ») & MISE À JOUR    */}
+          {/* ========================================================================= */}
+          <div
+            className={`mt-8 p-4 sm:p-6 rounded-2xl border-2 shadow-lg transition-all ${
+              isDark
+                ? 'bg-slate-900/95 border-[#90D5FF]/60 text-slate-100'
+                : 'bg-gradient-to-r from-sky-50 via-white to-sky-50 border-[#0284c7] text-slate-900'
+            }`}
+          >
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="space-y-1.5 min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#0c4a6e] text-[#90D5FF] text-[10px] sm:text-[11px] font-black uppercase tracking-wider">
+                    <Download className="w-3.5 h-3.5 shrink-0" />
+                    <span>
+                      {isEn
+                        ? 'PWA Application · Installed Name: "F-PLLAN"'
+                        : 'Application PWA · Nom installé : « F-PLLAN »'}
+                    </span>
+                  </span>
+                  <span className="text-[11px] font-extrabold text-emerald-600 dark:text-emerald-400">
+                    {isEn
+                      ? '• MacBook, Windows, Linux, iPhone, iPad & Android'
+                      : '• MacBook, Windows, Linux, iPhone, iPad & Android'}
+                  </span>
+                </div>
+                <h3
+                  className={`text-sm sm:text-base font-black leading-snug break-words ${
+                    isDark ? 'text-white' : 'text-[#0c4a6e]'
+                  }`}
+                >
+                  {isEn
+                    ? 'Download & Install "F-PLLAN" on your Computer, Tablet or Smartphone'
+                    : 'Télécharger & Installer l’application « F-PLLAN » sur votre Ordinateur, Tablette ou Téléphone'}
+                </h3>
+                <p
+                  className={`text-xs leading-relaxed break-words ${
+                    isDark ? 'text-slate-300' : 'text-slate-600'
+                  }`}
+                >
+                  {isEn
+                    ? 'Install the official "F-PLLAN" app directly onto your device (MacBook, Windows, Linux, Android or Apple iPhone/iPad) for 1-click desktop/home-screen launch and offline access. Use the Update icon button anytime to reload the latest version.'
+                    : 'Installez l’application officielle sous le nom « F-PLLAN » directement sur votre appareil (ordinateur MacBook, Windows, Linux, ou téléphone et tablette Android / Apple) pour y accéder en 1 clic depuis votre bureau ou écran d’accueil. Utilisez le bouton icône « Mise à jour » à droite pour recharger et actualiser l’application.'}
+                </p>
+              </div>
+
+              {/* Boutons de téléchargement par plateforme + Bouton en icône "Mise à jour" */}
+              <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 shrink-0">
+                {/* 1. Ordinateurs : MacBook / Windows / Linux */}
+                <button
+                  type="button"
+                  onClick={() => handleInstallPwaPlatform('desktop')}
+                  className="inline-flex items-center gap-2 px-3 sm:px-3.5 py-2.5 rounded-xl bg-[#0c4a6e] hover:bg-[#075985] text-white text-xs font-black shadow-sm transition-all cursor-pointer border border-[#90D5FF]/50"
+                >
+                  <Monitor className="w-4 h-4 text-[#90D5FF] shrink-0" />
+                  <span className="text-left leading-tight">
+                    {isEn
+                      ? 'MacBook / Windows / Linux'
+                      : 'Ordinateur (MacBook · Windows · Linux)'}
+                  </span>
+                </button>
+
+                {/* 2. Mobile & Tablette Android */}
+                <button
+                  type="button"
+                  onClick={() => handleInstallPwaPlatform('android')}
+                  className="inline-flex items-center gap-2 px-3 sm:px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-sm transition-all cursor-pointer"
+                >
+                  <Smartphone className="w-4 h-4 text-white shrink-0" />
+                  <span className="text-left leading-tight">
+                    {isEn
+                      ? 'Android Phone & Tablet'
+                      : 'Mobile & Tablette Android'}
+                  </span>
+                </button>
+
+                {/* 3. Mobile & Tablette Apple (iPhone & iPad) -> Ouvre le petit champ d'explication */}
+                <button
+                  type="button"
+                  onClick={() => handleInstallPwaPlatform('apple')}
+                  aria-expanded={activeInstallHelper === 'apple'}
+                  className={`inline-flex items-center gap-2 px-3 sm:px-3.5 py-2.5 rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer border ${
+                    activeInstallHelper === 'apple'
+                      ? 'bg-[#90D5FF] text-slate-950 border-[#0c4a6e] ring-2 ring-[#0284c7]'
+                      : isDark
+                      ? 'bg-slate-800 hover:bg-slate-700 text-white border-[#90D5FF]/60'
+                      : 'bg-white hover:bg-sky-100 text-[#0c4a6e] border-[#0284c7]'
+                  }`}
+                >
+                  <Tablet className="w-4 h-4 text-[#0284c7] shrink-0" />
+                  <span className="text-left leading-tight">
+                    {isEn
+                      ? 'Apple iPhone & iPad (Guide)'
+                      : 'Mobile & Tablette Apple (iPhone / iPad)'}
+                  </span>
+                </button>
+
+                {/* 4. Bouton en icône "Mise à jour" pour recharger l'application */}
+                <button
+                  type="button"
+                  onClick={handleReloadAndUpdateApp}
+                  title={
+                    isEn
+                      ? 'Update & Reload F-PLLAN Application'
+                      : 'Mise à jour : Recharger l’application F-PLLAN pour appliquer la dernière version'
+                  }
+                  aria-label={isEn ? 'Update App' : 'Mise à jour'}
+                  className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black shadow-sm transition-all cursor-pointer shrink-0"
+                >
+                  <RefreshCw
+                    className={`w-4 h-4 shrink-0 ${
+                      isUpdatingApp ? 'animate-spin' : ''
+                    }`}
+                  />
+                  <span>{isEn ? 'Update' : 'Mise à jour'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Notification d'état PWA */}
+            {pwaNotice && (
+              <div className="mt-3 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-400 text-emerald-900 dark:text-emerald-200 text-xs font-bold flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="break-words">{pwaNotice}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPwaNotice(null)}
+                  className="text-emerald-700 dark:text-emerald-300 hover:opacity-75 cursor-pointer shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* PETIT CHAMP D'EXPLICATION INTERACTIF POUR MOBILE & TABLETTE APPLE (iPhone & iPad) */}
+            {activeInstallHelper === 'apple' && (
+              <div
+                className={`mt-4 p-4 rounded-xl border-2 transition-all ${
+                  isDark
+                    ? 'bg-slate-800/95 border-[#90D5FF] text-slate-100'
+                    : 'bg-white border-[#0284c7] text-slate-900 shadow-md'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3 mb-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-[#0c4a6e] text-[#90D5FF] flex items-center justify-center shrink-0">
+                      <Tablet className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-black uppercase text-[#0c4a6e] dark:text-[#90D5FF]">
+                        {isEn
+                          ? 'How to install "F-PLLAN" on Apple iPhone & iPad (iOS / iPadOS)'
+                          : 'Comment télécharger « F-PLLAN » sur iPhone et Tablette iPad (Apple)'}
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {isEn
+                          ? 'Follow these 3 quick steps in Safari or Chrome on your Apple device:'
+                          : 'Suivez ces 3 étapes simples depuis Safari (ou Chrome) sur votre appareil Apple :'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveInstallHelper(null)}
+                    className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 cursor-pointer shrink-0"
+                    title={isEn ? 'Close explanation' : 'Fermer l’explication'}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div className="p-3 rounded-lg bg-sky-50/80 dark:bg-slate-900 border border-sky-200 dark:border-slate-700 space-y-1">
+                    <div className="font-black text-[#0284c7] flex items-center gap-1.5">
+                      <Share className="w-4 h-4 shrink-0" />
+                      <span>{isEn ? '1. Tap "Share"' : '1. Appuyez sur « Partager »'}</span>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-slate-700 dark:text-slate-300">
+                      {isEn
+                        ? 'Tap the Share icon (square with an upward arrow ↑) at the bottom of your iPhone screen or top-right on your iPad.'
+                        : 'Appuyez sur l’icône Partager (le carré avec une flèche vers le haut ↑) située en bas de l’écran sur iPhone ou en haut à droite sur iPad.'}
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-sky-50/80 dark:bg-slate-900 border border-sky-200 dark:border-slate-700 space-y-1">
+                    <div className="font-black text-[#0284c7] flex items-center gap-1.5">
+                      <PlusSquare className="w-4 h-4 shrink-0" />
+                      <span>
+                        {isEn
+                          ? '2. "Add to Home Screen"'
+                          : '2. « Sur l’écran d’accueil »'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-slate-700 dark:text-slate-300">
+                      {isEn
+                        ? 'Scroll down the share menu and select "Add to Home Screen" (+).'
+                        : 'Faites défiler la liste des options vers le bas puis appuyez sur « Sur l’écran d’accueil » (+).'}
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-sky-50/80 dark:bg-slate-900 border border-sky-200 dark:border-slate-700 space-y-1">
+                    <div className="font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span>
+                        {isEn
+                          ? '3. Confirm "F-PLLAN"'
+                          : '3. Validez l’application « F-PLLAN »'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-slate-700 dark:text-slate-300">
+                      {isEn
+                        ? 'The name "F-PLLAN" appears automatically. Tap "Add" at the top right: the app is now installed on your iPhone/iPad!'
+                        : 'Le nom « F-PLLAN » s’affiche automatiquement. Appuyez sur « Ajouter » en haut à droite : l’icône F-PLLAN est installée sur votre écran d’accueil !'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PETIT CHAMP D'EXPLICATION POUR ORDINATEUR (MacBook / Windows / Linux) SI DÉJÀ INSTALLÉ OU SAFARI */}
+            {activeInstallHelper === 'desktop' && (
+              <div
+                className={`mt-4 p-4 rounded-xl border-2 transition-all ${
+                  isDark
+                    ? 'bg-slate-800/95 border-[#90D5FF] text-slate-100'
+                    : 'bg-white border-[#0284c7] text-slate-900 shadow-md'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div className="flex items-center gap-2">
+                    <Monitor className="w-5 h-5 text-[#0284c7] shrink-0" />
+                    <h4 className="text-xs sm:text-sm font-black uppercase text-[#0c4a6e] dark:text-[#90D5FF]">
+                      {isEn
+                        ? 'Install "F-PLLAN" on MacBook (macOS), Windows & Linux'
+                        : 'Installation de « F-PLLAN » sur Ordinateur (MacBook, Windows & Linux)'}
+                    </h4>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveInstallHelper(null)}
+                    className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 cursor-pointer shrink-0"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="p-3 rounded-lg bg-sky-50/80 dark:bg-slate-900 border border-sky-200 dark:border-slate-700">
+                    <div className="font-black text-[#0c4a6e] dark:text-[#90D5FF] mb-1">
+                      • Google Chrome / Microsoft Edge / Brave (Windows, Mac, Linux) :
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-slate-700 dark:text-slate-300">
+                      Cliquez sur l’icône <strong>Installer « F-PLLAN »</strong> (petit écran avec une flèche vers le bas) située tout à droite de la barre d’adresse de votre navigateur, ou dans le menu <strong>⋮ → Enregistrer et partager → Installer F-PLLAN</strong>.
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-sky-50/80 dark:bg-slate-900 border border-sky-200 dark:border-slate-700">
+                    <div className="font-black text-[#0c4a6e] dark:text-[#90D5FF] mb-1">
+                      • Safari sur MacBook / iMac (macOS) :
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-slate-700 dark:text-slate-300">
+                      Dans la barre de menu en haut de l’écran, cliquez sur <strong>Fichier → Ajouter au Dock...</strong> (ou sur le bouton Partager → <strong>Ajouter au Dock</strong>) et validez le nom <strong>« F-PLLAN »</strong>.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PETIT CHAMP D'EXPLICATION POUR ANDROID (Mobile & Tablette) */}
+            {activeInstallHelper === 'android' && (
+              <div
+                className={`mt-4 p-4 rounded-xl border-2 transition-all ${
+                  isDark
+                    ? 'bg-slate-800/95 border-[#90D5FF] text-slate-100'
+                    : 'bg-white border-emerald-600 text-slate-900 shadow-md'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div className="flex items-center gap-2">
+                    <Smartphone className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <h4 className="text-xs sm:text-sm font-black uppercase text-emerald-800 dark:text-emerald-300">
+                      {isEn
+                        ? 'Install "F-PLLAN" on Android Phone & Tablet'
+                        : 'Installation de « F-PLLAN » sur Téléphone & Tablette Android'}
+                    </h4>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveInstallHelper(null)}
+                    className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 cursor-pointer shrink-0"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-300">
+                  Dans Chrome ou Samsung Internet sur Android, appuyez sur le menu <strong>⋮</strong> (en haut à droite) puis sélectionnez <strong>« Installer l’application »</strong> ou <strong>« Ajouter à l’écran d’accueil »</strong>. Confirmez l’installation : l’application <strong>« F-PLLAN »</strong> est immédiatement ajoutée à vos applications Android.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </section>

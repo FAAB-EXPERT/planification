@@ -31,12 +31,12 @@ export function buildBusinessCardVCardPayload(
     'Direction / UGP'
   ).replace(/[;\r\n]+/g, ' ');
   const role = (profile.officialRole || 'Responsable Opérationnel').replace(/[\r\n]+/g, ' ');
-  const phoneWork = (profile.phonePro || '').trim();
-  const phoneCell = (profile.phoneMobile || '').trim();
-  const email = (profile.emailPro || '').trim();
-  const address = (profile.officeAddress || '').replace(/[;\r\n]+/g, ' ');
+  const phoneWork = (profile.phonePro || '+225 27 20 00 12 34').trim();
+  const phoneCell = (profile.phoneMobile || profile.phonePro || '+225 07 48 08 27 39').trim();
+  const email = (profile.emailPro || 'contact@programme-pilote.org').trim();
+  const address = (profile.officeAddress || 'Siège de l’Organisme Pilote').replace(/[;\r\n]+/g, ' ');
   const city = (profile.residenceCity || 'Abidjan').replace(/[;\r\n]+/g, ' ');
-  const website = (profile.websiteUrl || '').trim();
+  const website = (profile.websiteUrl || 'www.programme-pilote.org').trim();
   const matricule = (profile.employeeId || 'MAT-PILOTE-001').trim();
   const raci = (profile.raciRoleBadge || 'R').trim();
 
@@ -71,7 +71,7 @@ export function buildBusinessCardVCardPayload(
   );
   lines.push('END:VCARD');
 
-  return lines.join('\n');
+  return lines.join('\r\n');
 }
 
 /**
@@ -492,20 +492,636 @@ export function encodeQrMatrix(rawText: string): boolean[][] {
   }
 
   // Inscrire les 15 bits de Format Info (ECC Level L = 01, Mask 0 = 000 -> bits BCH masqués = 0x77c4)
+  // Conformément à ISO/IEC 18004 (modules[row][col]) :
   const formatBits = 0x77c4;
   const getFormatBit = (idx: number) => ((formatBits >>> idx) & 1) !== 0;
 
-  for (let i = 0; i <= 5; i++) modules[8][i] = getFormatBit(i);
-  modules[8][7] = getFormatBit(6);
+  // Copie 1 autour du repère supérieur gauche
+  for (let i = 0; i <= 5; i++) modules[i][8] = getFormatBit(i);
+  modules[7][8] = getFormatBit(6);
   modules[8][8] = getFormatBit(7);
-  modules[7][8] = getFormatBit(8);
-  for (let i = 9; i < 15; i++) modules[14 - i][8] = getFormatBit(i);
+  modules[8][7] = getFormatBit(8);
+  for (let i = 9; i < 15; i++) modules[8][14 - i] = getFormatBit(i);
 
-  for (let i = 0; i < 8; i++) modules[size - 1 - i][8] = getFormatBit(i);
-  for (let i = 8; i < 15; i++) modules[8][size - 15 + i] = getFormatBit(i);
+  // Copie 2 sous le repère supérieur droit (bits 0..7) et à droite du repère inférieur gauche (bits 8..14)
+  for (let i = 0; i < 8; i++) modules[8][size - 1 - i] = getFormatBit(i);
+  for (let i = 8; i < 15; i++) modules[size - 15 + i][8] = getFormatBit(i);
   modules[size - 8][8] = true;
 
   return modules;
+}
+
+// ============================================================================
+// DÉCODEURS OPTIQUES PURS TYPESCRIPT (QR CODE 2D & CODE-128 1D)
+// ============================================================================
+
+/**
+ * Décode une séquence de largeurs Barre/Espace CODE-128B vers la chaîne ASCII d'origine
+ * avec vérification stricte du caractère de contrôle modulo 103.
+ */
+export function decodeCode128Bars(widths: number[]): string | null {
+  if (!widths || widths.length < 19 || (widths.length - 13) % 6 !== 0) {
+    return null;
+  }
+  const numSymbols = (widths.length - 7) / 6;
+  if (numSymbols < 3) return null;
+
+  const matchSymbol = (slice6: number[]): { code: number; dist: number } => {
+    const sum = slice6.reduce((a, b) => a + b, 0);
+    if (sum <= 0) return { code: -1, dist: 999 };
+    let bestCode = -1;
+    let bestDist = 999;
+    for (let c = 0; c <= 105; c++) {
+      const pat = CODE128_PATTERNS[c];
+      let d = 0;
+      for (let k = 0; k < 6; k++) {
+        d += Math.abs((slice6[k] * 11) / sum - pat[k]);
+      }
+      if (d < bestDist) {
+        bestDist = d;
+        bestCode = c;
+      }
+    }
+    return { code: bestCode, dist: bestDist };
+  };
+
+  const startMatch = matchSymbol(widths.slice(0, 6));
+  if (startMatch.code !== 104 || startMatch.dist > 2.4) {
+    return null;
+  }
+
+  // Vérifier le motif Stop (code 106, 7 éléments de somme 13)
+  const stopSlice = widths.slice(widths.length - 7);
+  const stopSum = stopSlice.reduce((a, b) => a + b, 0);
+  if (stopSum <= 0) return null;
+  const stopPat = CODE128_PATTERNS[106];
+  let stopDist = 0;
+  for (let k = 0; k < 7; k++) {
+    stopDist += Math.abs((stopSlice[k] * 13) / stopSum - stopPat[k]);
+  }
+  if (stopDist > 3.0) return null;
+
+  const dataCodes: number[] = [];
+  for (let s = 1; s < numSymbols; s++) {
+    const m = matchSymbol(widths.slice(s * 6, s * 6 + 6));
+    if (m.code < 0 || m.dist > 2.4) return null;
+    dataCodes.push(m.code);
+  }
+
+  const checkSymbol = dataCodes.pop()!;
+  let checksum = 104;
+  for (let i = 0; i < dataCodes.length; i++) {
+    checksum += dataCodes[i] * (i + 1);
+  }
+  if (checksum % 103 !== checkSymbol) {
+    return null;
+  }
+
+  let out = '';
+  for (const code of dataCodes) {
+    if (code >= 0 && code <= 94) {
+      out += String.fromCharCode(code + 32);
+    }
+  }
+  return out.trim() || null;
+}
+
+/**
+ * Décode une matrice booléenne QR Code (Versions 1..20, Mode Byte) vers sa chaîne UTF-8.
+ */
+export function decodeQrMatrix(modules: boolean[][]): string | null {
+  const size = modules?.length || 0;
+  if (size < 21 || (size - 17) % 4 !== 0) return null;
+  const version = (size - 17) / 4;
+  const spec = QR_VERSION_L_SPECS.find(s => s.version === version);
+  if (!spec) return null;
+
+  // Lire les 15 bits de Format Info (Copie 1)
+  let formatBits = 0;
+  const setBit = (idx: number, val: boolean) => {
+    if (val) formatBits |= 1 << idx;
+  };
+  for (let i = 0; i <= 5; i++) setBit(i, modules[i][8]);
+  setBit(6, modules[7][8]);
+  setBit(7, modules[8][8]);
+  setBit(8, modules[8][7]);
+  for (let i = 9; i < 15; i++) setBit(i, modules[8][14 - i]);
+
+  const unmaskedFormat = formatBits ^ 0x5412;
+  const maskId = (unmaskedFormat >>> 10) & 0b111;
+
+  // Reconstruire le masque des modules fonctionnels
+  const isFunction: boolean[][] = Array.from({ length: size }, () =>
+    Array(size).fill(false)
+  );
+  const markFunc = (r: number, c: number) => {
+    if (r >= 0 && r < size && c >= 0 && c < size) isFunction[r][c] = true;
+  };
+  const markFinder = (topR: number, leftC: number) => {
+    for (let dr = -1; dr <= 7; dr++) {
+      for (let dc = -1; dc <= 7; dc++) {
+        markFunc(topR + dr, leftC + dc);
+      }
+    }
+  };
+  markFinder(0, 0);
+  markFinder(0, size - 7);
+  markFinder(size - 7, 0);
+
+  for (let i = 8; i < size - 8; i++) {
+    markFunc(6, i);
+    markFunc(i, 6);
+  }
+  markFunc(size - 8, 8);
+
+  const centers = spec.alignmentCenters;
+  for (let i = 0; i < centers.length; i++) {
+    for (let j = 0; j < centers.length; j++) {
+      if (
+        (i === 0 && j === 0) ||
+        (i === 0 && j === centers.length - 1) ||
+        (i === centers.length - 1 && j === 0)
+      ) {
+        continue;
+      }
+      for (let dr = -2; dr <= 2; dr++) {
+        for (let dc = -2; dc <= 2; dc++) {
+          markFunc(centers[i] + dr, centers[j] + dc);
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i <= 8; i++) {
+    markFunc(8, i);
+    markFunc(i, 8);
+  }
+  for (let i = 0; i < 8; i++) {
+    markFunc(8, size - 1 - i);
+    markFunc(size - 1 - i, 8);
+  }
+  if (spec.version >= 7) {
+    for (let i = 0; i < 18; i++) {
+      const a = size - 11 + (i % 3);
+      const b = Math.floor(i / 3);
+      markFunc(a, b);
+      markFunc(b, a);
+    }
+  }
+
+  const applyMask = (r: number, c: number, bit: boolean): boolean => {
+    let inv = false;
+    switch (maskId) {
+      case 0: inv = (r + c) % 2 === 0; break;
+      case 1: inv = r % 2 === 0; break;
+      case 2: inv = c % 3 === 0; break;
+      case 3: inv = (r + c) % 3 === 0; break;
+      case 4: inv = (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0; break;
+      case 5: inv = ((r * c) % 2) + ((r * c) % 3) === 0; break;
+      case 6: inv = (((r * c) % 2) + ((r * c) % 3)) % 2 === 0; break;
+      case 7: inv = (((r + c) % 2) + ((r * c) % 3)) % 2 === 0; break;
+    }
+    return inv ? !bit : bit;
+  };
+
+  // Extraire le flux binaire entrelacé
+  const rawBits: number[] = [];
+  for (let right = size - 1; right >= 1; right -= 2) {
+    if (right === 6) right = 5;
+    for (let vert = 0; vert < size; vert++) {
+      for (let j = 0; j < 2; j++) {
+        const c = right - j;
+        const upward = ((right + 1) & 2) === 0;
+        const r = upward ? size - 1 - vert : vert;
+        if (!isFunction[r][c]) {
+          rawBits.push(applyMask(r, c, modules[r][c]) ? 1 : 0);
+        }
+      }
+    }
+  }
+
+  const codewords: number[] = [];
+  for (let i = 0; i + 7 < rawBits.length && codewords.length < spec.totalCodewords; i += 8) {
+    let b = 0;
+    for (let k = 0; k < 8; k++) b = (b << 1) | rawBits[i + k];
+    codewords.push(b);
+  }
+
+  // Désentrelacer les blocs de données
+  const totalBlocks = spec.numBlocksGroup1 + spec.numBlocksGroup2;
+  const blocks: number[][] = Array.from({ length: totalBlocks }, () => []);
+  const maxDataBlockLen = Math.max(spec.dataCodewordsGroup1, spec.dataCodewordsGroup2);
+  let cwIdx = 0;
+  for (let i = 0; i < maxDataBlockLen; i++) {
+    for (let b = 0; b < totalBlocks; b++) {
+      const blkLen =
+        b < spec.numBlocksGroup1 ? spec.dataCodewordsGroup1 : spec.dataCodewordsGroup2;
+      if (i < blkLen && cwIdx < codewords.length) {
+        blocks[b].push(codewords[cwIdx++]);
+      }
+    }
+  }
+
+  const dataBytes: number[] = [];
+  for (const blk of blocks) {
+    dataBytes.push(...blk);
+  }
+
+  // Lire les bits de données (Mode Byte = 0100)
+  const dataBits: number[] = [];
+  for (const b of dataBytes) {
+    for (let k = 7; k >= 0; k--) dataBits.push((b >>> k) & 1);
+  }
+
+  const readBits = (start: number, len: number): number => {
+    let val = 0;
+    for (let i = 0; i < len; i++) {
+      val = (val << 1) | (dataBits[start + i] || 0);
+    }
+    return val;
+  };
+
+  const mode = readBits(0, 4);
+  if (mode !== 0b0100) return null;
+  const countBitsLen = spec.version <= 9 ? 8 : 16;
+  const byteCount = readBits(4, countBitsLen);
+  const totalDataCapacity =
+    spec.numBlocksGroup1 * spec.dataCodewordsGroup1 +
+    spec.numBlocksGroup2 * spec.dataCodewordsGroup2;
+  if (byteCount <= 0 || byteCount > totalDataCapacity) return null;
+
+  const outBytes = new Uint8Array(byteCount);
+  let bitPos = 4 + countBitsLen;
+  for (let i = 0; i < byteCount; i++) {
+    outBytes[i] = readBits(bitPos, 8);
+    bitPos += 8;
+  }
+
+  try {
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(outBytes);
+    return text.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Scanner optique 1D CODE-128B sur ImageData (parcourt des lignes horizontales de l'image).
+ */
+export function decodeCode128FromImageData(imageData: ImageData): string | null {
+  const { width, height, data } = imageData;
+  if (width < 40 || height < 4) return null;
+
+  const stepY = Math.max(1, Math.floor(height / 60));
+  for (let y = Math.floor(height * 0.08); y < height * 0.92; y += stepY) {
+    // Calculer la luminance sur la ligne y
+    const rowLum = new Uint8Array(width);
+    let minL = 255;
+    let maxL = 0;
+    const rowOffset = y * width * 4;
+    for (let x = 0; x < width; x++) {
+      const idx = rowOffset + x * 4;
+      const a = data[idx + 3];
+      const lum =
+        a < 128
+          ? 255
+          : Math.round(0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]);
+      rowLum[x] = lum;
+      if (lum < minL) minL = lum;
+      if (lum > maxL) maxL = lum;
+    }
+    if (maxL - minL < 40) continue;
+
+    for (const ratio of [0.5, 0.42, 0.58]) {
+      const thresh = minL + (maxL - minL) * ratio;
+      // Extraire les runs (isDark, length)
+      const runs: { dark: boolean; len: number }[] = [];
+      let curDark = rowLum[0] < thresh;
+      let curLen = 1;
+      for (let x = 1; x < width; x++) {
+        const d = rowLum[x] < thresh;
+        if (d === curDark) {
+          curLen++;
+        } else {
+          runs.push({ dark: curDark, len: curLen });
+          curDark = d;
+          curLen = 1;
+        }
+      }
+      runs.push({ dark: curDark, len: curLen });
+
+      // Chercher une séquence commençant par une barre noire (Start Code B = 104)
+      for (let i = 0; i < runs.length - 18; i++) {
+        if (!runs[i].dark) continue;
+        // Vérifier que les 6 premiers runs ont une taille cohérente avec Start B [2,1,1,2,1,4]
+        const start6 = [
+          runs[i].len,
+          runs[i + 1].len,
+          runs[i + 2].len,
+          runs[i + 3].len,
+          runs[i + 4].len,
+          runs[i + 5].len
+        ];
+        const sum6 = start6.reduce((a, b) => a + b, 0);
+        if (sum6 < 11) continue;
+        const unit = sum6 / 11;
+        if (
+          Math.abs(start6[0] / unit - 2) > 0.75 ||
+          Math.abs(start6[1] / unit - 1) > 0.75 ||
+          Math.abs(start6[2] / unit - 1) > 0.75 ||
+          Math.abs(start6[3] / unit - 2) > 0.75 ||
+          Math.abs(start6[4] / unit - 1) > 0.75 ||
+          Math.abs(start6[5] / unit - 4) > 0.95
+        ) {
+          continue;
+        }
+
+        // Tester les longueurs possibles de message (de 3 à 28 caractères)
+        for (let numChars = 3; numChars <= 28; numChars++) {
+          const totalRunsNeeded = (numChars + 2) * 6 + 7;
+          if (i + totalRunsNeeded > runs.length) break;
+          const candidateWidths: number[] = [];
+          for (let k = 0; k < totalRunsNeeded; k++) {
+            candidateWidths.push(runs[i + k].len);
+          }
+          const decoded = decodeCode128Bars(candidateWidths);
+          if (decoded && decoded.length >= 3) {
+            return decoded;
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Scanner optique 2D QR Code sur ImageData (détecte les 3 repères 1:1:3:1:1 et échantillonne la grille).
+ */
+export function decodeQrFromImageData(imageData: ImageData): string | null {
+  const { width, height, data } = imageData;
+  if (width < 21 || height < 21) return null;
+
+  // Convertir en luminance
+  const lum = new Uint8Array(width * height);
+  let minL = 255;
+  let maxL = 0;
+  for (let i = 0; i < width * height; i++) {
+    const idx = i * 4;
+    const v =
+      data[idx + 3] < 128
+        ? 255
+        : Math.round(0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]);
+    lum[i] = v;
+    if (v < minL) minL = v;
+    if (v > maxL) maxL = v;
+  }
+  if (maxL - minL < 35) return null;
+  const threshold = minL + (maxL - minL) * 0.52;
+  const isDark = (x: number, y: number): boolean => {
+    const cx = Math.max(0, Math.min(width - 1, Math.round(x)));
+    const cy = Math.max(0, Math.min(height - 1, Math.round(y)));
+    return lum[cy * width + cx] < threshold;
+  };
+
+  // Vérifier le ratio 1:1:3:1:1
+  const isFinderRatio = (counts: number[]): boolean => {
+    const total = counts[0] + counts[1] + counts[2] + counts[3] + counts[4];
+    if (total < 7) return false;
+    const moduleSize = total / 7;
+    const maxVar = moduleSize * 0.65;
+    return (
+      Math.abs(moduleSize - counts[0]) < maxVar &&
+      Math.abs(moduleSize - counts[1]) < maxVar &&
+      Math.abs(3 * moduleSize - counts[2]) < 3 * maxVar &&
+      Math.abs(moduleSize - counts[3]) < maxVar &&
+      Math.abs(moduleSize - counts[4]) < maxVar
+    );
+  };
+
+  // Vérification verticale centrée sur (cx, startY)
+  const checkVerticalFinder = (cx: number, centerY: number, maxCount: number): { cy: number; modSize: number } | null => {
+    const x = Math.round(cx);
+    let y = Math.round(centerY);
+    if (!isDark(x, y)) return null;
+
+    const vCounts = [0, 0, 0, 0, 0];
+    while (y >= 0 && isDark(x, y)) {
+      vCounts[2]++;
+      y--;
+    }
+    if (y < 0) return null;
+    while (y >= 0 && !isDark(x, y) && vCounts[1] <= maxCount) {
+      vCounts[1]++;
+      y--;
+    }
+    if (y < 0 || vCounts[1] > maxCount) return null;
+    while (y >= 0 && isDark(x, y) && vCounts[0] <= maxCount) {
+      vCounts[0]++;
+      y--;
+    }
+    if (vCounts[0] > maxCount) return null;
+
+    y = Math.round(centerY) + 1;
+    while (y < height && isDark(x, y)) {
+      vCounts[2]++;
+      y++;
+    }
+    if (y >= height) return null;
+    while (y < height && !isDark(x, y) && vCounts[3] <= maxCount) {
+      vCounts[3]++;
+      y++;
+    }
+    if (y >= height || vCounts[3] > maxCount) return null;
+    while (y < height && isDark(x, y) && vCounts[4] <= maxCount) {
+      vCounts[4]++;
+      y++;
+    }
+    if (vCounts[4] > maxCount) return null;
+
+    if (!isFinderRatio(vCounts)) return null;
+    const total = vCounts[0] + vCounts[1] + vCounts[2] + vCounts[3] + vCounts[4];
+    const cy = y - vCounts[4] - vCounts[3] - vCounts[2] / 2;
+    return { cy, modSize: total / 7 };
+  };
+
+  interface FinderCenter {
+    x: number;
+    y: number;
+    modSize: number;
+    count: number;
+  }
+  const centers: FinderCenter[] = [];
+
+  for (let y = 0; y < height; y += 2) {
+    const counts = [0, 0, 0, 0, 0];
+    let state = 0;
+    for (let x = 0; x < width; x++) {
+      if (isDark(x, y)) {
+        if ((state & 1) === 1) state++;
+        counts[state]++;
+      } else {
+        if ((state & 1) === 0) {
+          if (state === 4) {
+            if (isFinderRatio(counts)) {
+              const totalH = counts[0] + counts[1] + counts[2] + counts[3] + counts[4];
+              const cx = x - counts[4] - counts[3] - counts[2] / 2;
+              const vRes = checkVerticalFinder(cx, y, counts[2] * 2);
+              if (vRes) {
+                const modSize = (totalH / 7 + vRes.modSize) / 2;
+                const existing = centers.find(
+                  c =>
+                    Math.hypot(c.x - cx, c.y - vRes.cy) < modSize * 4 &&
+                    Math.abs(c.modSize - modSize) < modSize * 0.5
+                );
+                if (existing) {
+                  existing.x = (existing.x * existing.count + cx) / (existing.count + 1);
+                  existing.y = (existing.y * existing.count + vRes.cy) / (existing.count + 1);
+                  existing.modSize = (existing.modSize * existing.count + modSize) / (existing.count + 1);
+                  existing.count++;
+                } else {
+                  centers.push({ x: cx, y: vRes.cy, modSize, count: 1 });
+                }
+              }
+            }
+            counts[0] = counts[2];
+            counts[1] = counts[3];
+            counts[2] = counts[4];
+            counts[3] = 1;
+            counts[4] = 0;
+            state = 3;
+          } else {
+            state++;
+            counts[state]++;
+          }
+        } else {
+          counts[state]++;
+        }
+      }
+    }
+  }
+
+  if (centers.length < 3) return null;
+  centers.sort((a, b) => b.count - a.count);
+  const topCenters = centers.slice(0, 8);
+
+  // Tester les triplets (TL, TR, BL) formant un angle droit en TL
+  for (let i = 0; i < topCenters.length; i++) {
+    for (let j = i + 1; j < topCenters.length; j++) {
+      for (let k = j + 1; k < topCenters.length; k++) {
+        const pts = [topCenters[i], topCenters[j], topCenters[k]];
+        // Le sommet de l'angle droit (Top-Left) est opposé à l'hypoténuse la plus longue
+        const d01 = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        const d12 = Math.hypot(pts[1].x - pts[2].x, pts[1].y - pts[2].y);
+        const d02 = Math.hypot(pts[0].x - pts[2].x, pts[0].y - pts[2].y);
+
+        let tl = pts[0], pA = pts[1], pB = pts[2];
+        if (d01 >= d12 && d01 >= d02) {
+          tl = pts[2]; pA = pts[0]; pB = pts[1];
+        } else if (d02 >= d01 && d02 >= d12) {
+          tl = pts[1]; pA = pts[0]; pB = pts[2];
+        }
+
+        // Produit vectoriel pour distinguer Top-Right et Bottom-Left
+        const cross = (pA.x - tl.x) * (pB.y - tl.y) - (pA.y - tl.y) * (pB.x - tl.x);
+        const tr = cross > 0 ? pA : pB;
+        const bl = cross > 0 ? pB : pA;
+
+        const distTR = Math.hypot(tr.x - tl.x, tr.y - tl.y);
+        const distBL = Math.hypot(bl.x - tl.x, bl.y - tl.y);
+        if (Math.abs(distTR - distBL) > Math.max(distTR, distBL) * 0.25) continue;
+
+        const avgMod = (tl.modSize + tr.modSize + bl.modSize) / 3;
+        const estDimension = Math.round(((distTR + distBL) / 2) / avgMod) + 7;
+        const estVersion = Math.round((estDimension - 17) / 4);
+
+        for (let dv = -2; dv <= 2; dv++) {
+          const v = estVersion + dv;
+          if (v < 1 || v > 20) continue;
+          const dim = 17 + 4 * v;
+          const span = dim - 7;
+          const mat: boolean[][] = Array.from({ length: dim }, () =>
+            Array(dim).fill(false)
+          );
+          for (let r = 0; r < dim; r++) {
+            const vf = (r - 3.5) / span;
+            for (let c = 0; c < dim; c++) {
+              const uf = (c - 3.5) / span;
+              const px = tl.x + uf * (tr.x - tl.x) + vf * (bl.x - tl.x);
+              const py = tl.y + uf * (tr.y - tl.y) + vf * (bl.y - tl.y);
+              mat[r][c] = isDark(px, py);
+            }
+          }
+          const decoded = decodeQrMatrix(mat);
+          if (decoded) return decoded;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Analyse une image ou frame vidéo avec BarcodeDetector natif ET les décodeurs optiques TS (QR 2D + CODE-128 1D).
+ */
+export async function decodeQrOrBarcodeFromSource(
+  source: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement
+): Promise<string | null> {
+  // 1. Essayer BarcodeDetector natif s'il est disponible
+  const BarcodeDetectorClass = (window as any).BarcodeDetector;
+  if (BarcodeDetectorClass) {
+    try {
+      const detector = new BarcodeDetectorClass({
+        formats: ['qr_code', 'code_128', 'code_39', 'ean_13']
+      });
+      const results = await detector.detect(source);
+      if (results && results.length > 0 && results[0].rawValue) {
+        return results[0].rawValue;
+      }
+    } catch {
+      // Continuer vers le décodage sur canvas
+    }
+  }
+
+  // 2. Dessiner sur un canvas pour analyse optique TS (QR Code 2D + Code-Barres 1D CODE-128)
+  const srcW =
+    (source as HTMLVideoElement).videoWidth ||
+    (source as HTMLImageElement).naturalWidth ||
+    source.width ||
+    0;
+  const srcH =
+    (source as HTMLVideoElement).videoHeight ||
+    (source as HTMLImageElement).naturalHeight ||
+    source.height ||
+    0;
+  if (srcW < 20 || srcH < 10) return null;
+
+  const canvas = document.createElement('canvas');
+  const maxDim = 1200;
+  const scale = Math.min(1, maxDim / Math.max(srcW, srcH));
+  const w = Math.max(24, Math.round(srcW * scale));
+  const h = Math.max(24, Math.round(srcH * scale));
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(source, 0, 0, w, h);
+
+  const fullImageData = ctx.getImageData(0, 0, w, h);
+
+  // Tester d'abord notre décodeur QR 2D TS sur l'image complète
+  const qrRes = decodeQrFromImageData(fullImageData);
+  if (qrRes) return qrRes;
+
+  // Tester notre décodeur Code-Barres 1D CODE-128 sur l'image complète
+  const barRes = decodeCode128FromImageData(fullImageData);
+  if (barRes) return barRes;
+
+  return null;
 }
 
 // ============================================================================
@@ -532,6 +1148,9 @@ export interface ScannedActorVerificationResult {
   emergencyPhone: string;
   email: string;
   phone: string;
+  phoneWork?: string;
+  address?: string;
+  website?: string;
   photoDataUrl?: string;
   statusMessageFr: string;
   statusMessageEn: string;
@@ -611,8 +1230,11 @@ export function verifyScannedPayloadAgainstDossier(
         bloodType: parsed.blood || prof?.badgeBloodType || 'O+',
         emergencyPhone:
           parsed.emergency || prof?.badgeEmergencyPhone || '+225 27 20 00 12 34',
-        email: parsed.email || matchedActor?.email || '',
-        phone: parsed.phone || matchedActor?.phone || '',
+        email: parsed.email || prof?.emailPro || matchedActor?.email || 'contact@programme-pilote.org',
+        phone: parsed.phone || prof?.phoneMobile || prof?.phonePro || matchedActor?.phone || '+225 07 48 08 27 39',
+        phoneWork: prof?.phonePro || matchedActor?.phone || '+225 27 20 00 12 34',
+        address: prof?.officeAddress || prof?.residenceCity || matchedActor?.address || 'Abidjan, Côte d’Ivoire',
+        website: prof?.websiteUrl || matchedActor?.website || 'www.programme-pilote.org',
         photoDataUrl:
           prof?.photoDataUrl ||
           matchedActor?.photoDataUrl ||
@@ -649,7 +1271,13 @@ export function verifyScannedPayloadAgainstDossier(
     const orgRaw = getVCardField('ORG');
     const [orgPart, deptPart] = orgRaw.split(';');
     const tel = getVCardField('TEL');
+    const telWorkMatch = trimmed.match(/^TEL;TYPE=WORK[^:]*:(.*)$/im);
+    const telWork = telWorkMatch ? telWorkMatch[1].trim() : '';
     const email = getVCardField('EMAIL');
+    const adrRaw = getVCardField('ADR');
+    const adrParts = adrRaw.split(';').map(s => s.trim()).filter(Boolean);
+    const extractedAddress = adrParts.join(', ');
+    const extractedUrl = getVCardField('URL');
     const note = getVCardField('NOTE');
 
     const matMatch = note.match(/Matricule:\s*([^|\r\n]+)/i);
@@ -692,8 +1320,11 @@ export function verifyScannedPayloadAgainstDossier(
         prof?.badgeValidityDate || matchedActor?.badgeValidity || '31/12/2026',
       bloodType: prof?.badgeBloodType || 'O+',
       emergencyPhone: prof?.badgeEmergencyPhone || tel || '+225 27 20 00 12 34',
-      email: email || matchedActor?.email || '',
-      phone: tel || matchedActor?.phone || '',
+      email: email || prof?.emailPro || matchedActor?.email || 'contact@programme-pilote.org',
+      phone: tel || prof?.phoneMobile || prof?.phonePro || matchedActor?.phone || '+225 07 48 08 27 39',
+      phoneWork: telWork || prof?.phonePro || tel || '+225 27 20 00 12 34',
+      address: extractedAddress || prof?.officeAddress || prof?.residenceCity || matchedActor?.address || 'Abidjan, Côte d’Ivoire',
+      website: extractedUrl || prof?.websiteUrl || matchedActor?.website || 'www.programme-pilote.org',
       photoDataUrl:
         prof?.photoDataUrl ||
         matchedActor?.photoDataUrl ||
@@ -789,12 +1420,25 @@ export function verifyScannedPayloadAgainstDossier(
         prof?.phonePro ||
         matchedByMatOrName?.phone ||
         '+225 27 20 00 12 34',
-      email: prof?.emailPro || matchedByMatOrName?.email || '',
+      email: prof?.emailPro || matchedByMatOrName?.email || 'contact@programme-pilote.org',
       phone:
         prof?.phoneMobile ||
         prof?.phonePro ||
         matchedByMatOrName?.phone ||
-        '',
+        '+225 07 48 08 27 39',
+      phoneWork:
+        prof?.phonePro ||
+        matchedByMatOrName?.phone ||
+        '+225 27 20 00 12 34',
+      address:
+        prof?.officeAddress ||
+        prof?.residenceCity ||
+        matchedByMatOrName?.address ||
+        'Abidjan, Côte d’Ivoire',
+      website:
+        prof?.websiteUrl ||
+        matchedByMatOrName?.website ||
+        'www.programme-pilote.org',
       photoDataUrl:
         prof?.photoDataUrl ||
         matchedByMatOrName?.photoDataUrl ||

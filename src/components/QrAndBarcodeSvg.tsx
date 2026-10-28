@@ -18,7 +18,7 @@ export const ScannableQrCodeSvg: React.FC<ScannableQrCodeSvgProps> = ({
 }) => {
   const matrix = useMemo(() => encodeQrMatrix(value || 'FAAB PLAN'), [value]);
   const n = matrix.length;
-  const quietZone = 2;
+  const quietZone = 4;
   const totalUnits = n + quietZone * 2;
 
   return (
@@ -70,7 +70,7 @@ export const ScannableCode128BarcodeSvg: React.FC<ScannableCode128BarcodeSvgProp
 }) => {
   const cleanCode = (value || 'MAT-PILOTE-001').trim();
   const widths = useMemo(() => encodeCode128Bars(cleanCode), [cleanCode]);
-  const quietZoneUnits = 6;
+  const quietZoneUnits = 10;
   const totalUnits =
     widths.reduce((acc, w) => acc + w, 0) + quietZoneUnits * 2;
 

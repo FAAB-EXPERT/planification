@@ -7,6 +7,7 @@ import {
   InternalActorProfile,
   UserProfile
 } from './types';
+import { safeJsonParse } from './securityUtils';
 
 const DB_NAME = 'faab_plan_strategic_idb';
 const DB_VERSION = 2;
@@ -14,6 +15,33 @@ const STORE_NAME = 'app_state';
 const PROGRAMMES_STORE = 'programmes_store';
 const ACTOR_PROFILES_STORE = 'actor_profiles_store';
 const STATE_KEY = 'main_state';
+
+// Strict per-user isolation: each authenticated Regular User (UID) has their own isolated IndexedDB key.
+// Unauthenticated visitors and the Super Administrator never read or write any user workspace.
+let activeUserStorageUid: string | null = null;
+
+export function setActiveUserStorageUid(uid: string | null): void {
+  const cleaned = (uid || '').trim();
+  activeUserStorageUid = cleaned ? cleaned : null;
+}
+
+export function getActiveUserStorageUid(): string | null {
+  return activeUserStorageUid;
+}
+
+function getScopedStateKey(explicitUid?: string | null): string | null {
+  const uid = (explicitUid ?? activeUserStorageUid ?? '').trim();
+  if (!uid) return null;
+  return `${STATE_KEY}_uid_${uid}`;
+}
+
+function getScopedDossierKey(
+  dossierId: string,
+  explicitUid?: string | null
+): string {
+  const uid = (explicitUid ?? activeUserStorageUid ?? 'anon').trim() || 'anon';
+  return `${uid}::${dossierId}`;
+}
 
 
 export const defaultUserProfile: UserProfile = {
@@ -1284,19 +1312,22 @@ function openDB(): Promise<IDBDatabase> {
 export async function loadActorProfilesFromIDB(
   dossierId: string
 ): Promise<Record<string, InternalActorProfile>> {
+  const scopedKey = getScopedDossierKey(dossierId);
   try {
     const db = await openDB();
     return new Promise(resolve => {
       const tx = db.transaction(ACTOR_PROFILES_STORE, 'readonly');
       const store = tx.objectStore(ACTOR_PROFILES_STORE);
-      const req = store.get(dossierId);
+      const req = store.get(scopedKey);
       req.onsuccess = () => {
         if (req.result && typeof req.result === 'object') {
           resolve(req.result);
         } else {
           try {
-            const fallback = localStorage.getItem(`faab_plan_internal_actors_${dossierId}`);
-            resolve(fallback ? JSON.parse(fallback) : {});
+            const fallback = localStorage.getItem(
+              `faab_plan_internal_actors_${scopedKey}`
+            );
+            resolve(fallback ? safeJsonParse(fallback, {}) : {});
           } catch {
             resolve({});
           }
@@ -1306,8 +1337,10 @@ export async function loadActorProfilesFromIDB(
     });
   } catch {
     try {
-      const fallback = localStorage.getItem(`faab_plan_internal_actors_${dossierId}`);
-      return fallback ? JSON.parse(fallback) : {};
+      const fallback = localStorage.getItem(
+        `faab_plan_internal_actors_${scopedKey}`
+      );
+      return fallback ? safeJsonParse(fallback, {}) : {};
     } catch {
       return {};
     }
@@ -1318,9 +1351,10 @@ export async function saveActorProfilesToIDB(
   dossierId: string,
   profiles: Record<string, InternalActorProfile>
 ): Promise<void> {
+  const scopedKey = getScopedDossierKey(dossierId);
   try {
     localStorage.setItem(
-      `faab_plan_internal_actors_${dossierId}`,
+      `faab_plan_internal_actors_${scopedKey}`,
       JSON.stringify(profiles)
     );
   } catch {
@@ -1331,7 +1365,7 @@ export async function saveActorProfilesToIDB(
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(ACTOR_PROFILES_STORE, 'readwrite');
       const store = tx.objectStore(ACTOR_PROFILES_STORE);
-      const req = store.put(profiles, dossierId);
+      const req = store.put(profiles, scopedKey);
       req.onsuccess = () => resolve();
       req.onerror = () => reject(req.error);
     });
@@ -1340,7 +1374,16 @@ export async function saveActorProfilesToIDB(
   }
 }
 
-export async function loadAppStateFromIDB(): Promise<Partial<AppPersistedState> | null> {
+export async function loadAppStateFromIDB(
+  explicitUid?: string | null
+): Promise<Partial<AppPersistedState> | null> {
+  const scopedStateKey = getScopedStateKey(explicitUid);
+  // Strict isolation: if no authenticated Regular User UID is active, never load any user workspace
+  if (!scopedStateKey) {
+    return null;
+  }
+  const uid = (explicitUid ?? activeUserStorageUid ?? '').trim();
+
   try {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -1350,23 +1393,33 @@ export async function loadAppStateFromIDB(): Promise<Partial<AppPersistedState> 
       );
       const store = tx.objectStore(STORE_NAME);
       const progStore = tx.objectStore(PROGRAMMES_STORE);
-      const req = store.get(STATE_KEY);
+      const req = store.get(scopedStateKey);
       req.onsuccess = () => {
         const mainState = (req.result || null) as Partial<AppPersistedState> | null;
         if (!mainState) {
           resolve(null);
           return;
         }
-        // Reconcile partitioned programmes from PROGRAMMES_STORE
+        // Reconcile only programmes belonging to this exact user UID
         const getAllReq = progStore.getAll();
         getAllReq.onsuccess = () => {
-          const storedProgrammes = (getAllReq.result || []) as Dossier[];
+          const prefix = `${uid}::`;
+          const storedProgrammes = (getAllReq.result || []) as Array<
+            Dossier & { _originalId?: string }
+          >;
           if (storedProgrammes.length > 0 && Array.isArray(mainState.dossiers)) {
             const mapById = new Map<string, Dossier>();
             storedProgrammes.forEach(p => {
-              if (p && p.id) mapById.set(p.id, p);
+              if (p && typeof p.id === 'string' && p.id.startsWith(prefix)) {
+                const realId = p._originalId || p.id.slice(prefix.length);
+                const cleanProg: Dossier = { ...p, id: realId };
+                delete (cleanProg as any)._originalId;
+                mapById.set(realId, cleanProg);
+              }
             });
-            mainState.dossiers = mainState.dossiers.map(d => mapById.get(d.id) || d);
+            mainState.dossiers = mainState.dossiers.map(
+              d => mapById.get(d.id) || d
+            );
           }
           resolve(mainState);
         };
@@ -1377,17 +1430,26 @@ export async function loadAppStateFromIDB(): Promise<Partial<AppPersistedState> 
   } catch (err) {
     console.warn('Fallback lecture localStorage:', err);
     try {
-      const raw = localStorage.getItem(STATE_KEY);
-      return raw ? JSON.parse(raw) : null;
+      const raw = localStorage.getItem(scopedStateKey);
+      return raw ? safeJsonParse(raw, null) : null;
     } catch {
       return null;
     }
   }
 }
 
-export async function saveAppStateToIDB(state: AppPersistedState): Promise<void> {
+export async function saveAppStateToIDB(
+  state: AppPersistedState,
+  explicitUid?: string | null
+): Promise<void> {
+  const scopedStateKey = getScopedStateKey(explicitUid);
+  // Strict isolation: never persist workspace if no Regular User UID is active
+  if (!scopedStateKey) {
+    return;
+  }
+
   try {
-    localStorage.setItem(STATE_KEY, JSON.stringify(state));
+    localStorage.setItem(scopedStateKey, JSON.stringify(state));
   } catch {
     // Ignore storage quota warnings on fallback
   }
@@ -1402,14 +1464,22 @@ export async function saveAppStateToIDB(state: AppPersistedState): Promise<void>
       const progStore = tx.objectStore(PROGRAMMES_STORE);
       const profilesStore = tx.objectStore(ACTOR_PROFILES_STORE);
 
-      store.put(state, STATE_KEY);
+      store.put(state, scopedStateKey);
 
-      // Save each Programme (Dossier) in its own isolated IndexedDB record
+      // Save each Programme (Dossier) strictly scoped to the current user's UID
       (state.dossiers || []).forEach(dossier => {
         if (dossier && dossier.id) {
-          progStore.put(dossier);
-          if (dossier.actorProfiles && Object.keys(dossier.actorProfiles).length > 0) {
-            profilesStore.put(dossier.actorProfiles, dossier.id);
+          const scopedProgKey = getScopedDossierKey(dossier.id, explicitUid);
+          progStore.put({
+            ...dossier,
+            id: scopedProgKey,
+            _originalId: dossier.id
+          });
+          if (
+            dossier.actorProfiles &&
+            Object.keys(dossier.actorProfiles).length > 0
+          ) {
+            profilesStore.put(dossier.actorProfiles, scopedProgKey);
           }
         }
       });
@@ -1543,7 +1613,8 @@ export async function loadStateFromDB(): Promise<AppPersistedState> {
     'pert',
     'kanban',
     'fiche',
-    'docgen'
+    'docgen',
+    'super_admin'
   ]);
   let normalizedTab = loaded.activeTab || 'landing';
   if (!validTabs.has(normalizedTab)) normalizedTab = 'landing';

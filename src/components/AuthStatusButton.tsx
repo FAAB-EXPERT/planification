@@ -1,6 +1,12 @@
-import React, { useState } from 'react';
-import { LogIn, LogOut, User as UserIcon, CheckCircle2, ChevronDown, Loader2 } from 'lucide-react';
-import type { FirebaseUser } from '../firebase';
+import React from 'react';
+import {
+  LogOut,
+  User as UserIcon,
+  Loader2,
+  ShieldCheck,
+  Lock
+} from 'lucide-react';
+import { FirebaseUser, isSuperAdminEmail } from '../firebase';
 
 interface AuthStatusButtonProps {
   user: FirebaseUser | null;
@@ -10,6 +16,7 @@ interface AuthStatusButtonProps {
   onSignOut: () => void;
   language: 'FR' | 'EN';
   variant?: 'header' | 'slidebar';
+  onLockDevice?: () => void;
 }
 
 export const AuthStatusButton: React.FC<AuthStatusButtonProps> = ({
@@ -19,12 +26,12 @@ export const AuthStatusButton: React.FC<AuthStatusButtonProps> = ({
   onSignIn,
   onSignOut,
   language,
-  variant = 'header'
+  variant = 'header',
+  onLockDevice
 }) => {
   const isEn = language === 'EN';
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const isSuperUser = isSuperAdminEmail(user?.email);
 
-  // Google multi-colored SVG icon
   const GoogleIcon = () => (
     <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
       <path
@@ -50,7 +57,9 @@ export const AuthStatusButton: React.FC<AuthStatusButtonProps> = ({
     return (
       <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-950/70 border border-[#90D5FF]/40 text-[#90D5FF] text-xs font-bold shrink-0">
         <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-        <span className="hidden sm:inline text-[11px]">{isEn ? 'Checking...' : 'Vérification...'}</span>
+        <span className="hidden sm:inline text-[11px]">
+          {isEn ? 'Checking...' : 'Vérification...'}
+        </span>
       </div>
     );
   }
@@ -96,7 +105,13 @@ export const AuthStatusButton: React.FC<AuthStatusButtonProps> = ({
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-emerald-400/40 animate-pulse shrink-0" />
                 <span className="text-[10px] font-black uppercase tracking-wider text-[#90D5FF]">
-                  {isEn ? 'Connected' : 'Connecté'}
+                  {isSuperUser
+                    ? isEn
+                      ? 'Super Admin'
+                      : 'Super Administrateur'
+                    : isEn
+                    ? 'User'
+                    : 'Utilisateur'}
                 </span>
               </div>
               <div className="text-xs font-black truncate text-white leading-tight">
@@ -108,15 +123,34 @@ export const AuthStatusButton: React.FC<AuthStatusButtonProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onSignOut}
-            title={isEn ? 'Sign Out' : 'Se déconnecter'}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-600 text-rose-200 hover:text-white border border-rose-400/40 text-[11px] font-bold cursor-pointer transition-all shrink-0"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{isEn ? 'Sign Out' : 'Déconnexion'}</span>
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onLockDevice && (
+              <button
+                type="button"
+                onClick={onLockDevice}
+                title={
+                  isEn
+                    ? 'Lock Device (Touch ID / Face ID / PIN)'
+                    : 'Verrouiller l’appareil (Touch ID / Face ID / PIN)'
+                }
+                className="p-1.5 rounded-lg bg-sky-950 hover:bg-amber-500 text-[#90D5FF] hover:text-slate-950 border border-[#90D5FF]/50 cursor-pointer transition-all"
+              >
+                <Lock className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={onSignOut}
+              title={isEn ? 'Sign Out' : 'Se déconnecter'}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-600 text-rose-200 hover:text-white border border-rose-400/40 text-[11px] font-bold cursor-pointer transition-all shrink-0"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">
+                {isEn ? 'Sign Out' : 'Déconnexion'}
+              </span>
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -129,7 +163,11 @@ export const AuthStatusButton: React.FC<AuthStatusButtonProps> = ({
         type="button"
         onClick={onSignIn}
         disabled={isSigningIn}
-        title={isEn ? 'Sign in with your Google / Gmail account' : 'Se connecter avec votre compte Google / Gmail'}
+        title={
+          isEn
+            ? 'Sign in with your Google / Gmail account'
+            : 'Se connecter avec votre compte Google / Gmail'
+        }
         aria-label={isEn ? 'Sign in' : 'Se connecter'}
         className="inline-flex items-center gap-2 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-white hover:bg-sky-50 text-slate-900 border border-[#90D5FF] text-[11px] sm:text-xs font-black shadow-md cursor-pointer transition-all shrink-0 hover:shadow-lg active:scale-95"
       >
@@ -145,10 +183,50 @@ export const AuthStatusButton: React.FC<AuthStatusButtonProps> = ({
 
   return (
     <div className="relative inline-flex items-center gap-1.5 sm:gap-2 shrink-0">
+      {/* Badge Rôle Exclusif (Super Administrateur vs Utilisateur) */}
+      <span
+        className={`hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider border ${
+          isSuperUser
+            ? 'bg-amber-400 text-slate-950 border-white'
+            : 'bg-sky-900/90 text-[#90D5FF] border-[#90D5FF]/50'
+        }`}
+      >
+        {isSuperUser ? (
+          <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+        ) : (
+          <UserIcon className="w-3.5 h-3.5 shrink-0" />
+        )}
+        <span>
+          {isSuperUser
+            ? isEn
+              ? 'Super Admin'
+              : 'Super Admin'
+            : isEn
+            ? 'User'
+            : 'Utilisateur'}
+        </span>
+      </span>
+
+      {/* Bouton Verrouiller Appareil (Touch ID / Face ID / PIN) pour Super Admin ET pour Utilisateur */}
+      {onLockDevice && (
+        <button
+          type="button"
+          onClick={onLockDevice}
+          title={
+            isEn
+              ? 'Lock Device (Unlock with Touch ID / Face ID or PIN)'
+              : 'Verrouiller l’appareil (Déverrouillage Touch ID / Face ID ou Code PIN)'
+          }
+          className="inline-flex items-center justify-center p-1.5 sm:p-2 rounded-xl bg-sky-950/90 hover:bg-amber-500 text-[#90D5FF] hover:text-slate-950 border border-[#90D5FF]/50 transition-all cursor-pointer shrink-0"
+        >
+          <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+        </button>
+      )}
+
       {/* Badge Connecté */}
       <div
         title={`${user.displayName || ''} (${user.email || ''})`}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl bg-sky-950/90 border border-[#90D5FF]/60 text-white shadow-xs max-w-[160px] sm:max-w-[220px]"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl bg-sky-950/90 border border-[#90D5FF]/60 text-white shadow-xs max-w-[150px] sm:max-w-[200px]"
       >
         {user.photoURL ? (
           <img
@@ -166,7 +244,7 @@ export const AuthStatusButton: React.FC<AuthStatusButtonProps> = ({
           <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-[#90D5FF] truncate">
             {isEn ? 'Connected' : 'Connecté'}
           </span>
-          <span className="hidden md:inline text-[11px] text-sky-200 truncate max-w-[90px]">
+          <span className="hidden md:inline text-[11px] text-sky-200 truncate max-w-[85px]">
             {user.displayName?.split(' ')[0] || user.email?.split('@')[0]}
           </span>
         </div>
@@ -176,12 +254,16 @@ export const AuthStatusButton: React.FC<AuthStatusButtonProps> = ({
       <button
         type="button"
         onClick={onSignOut}
-        title={isEn ? `Sign Out (${user.email})` : `Se déconnecter (${user.email})`}
+        title={
+          isEn ? `Sign Out (${user.email})` : `Se déconnecter (${user.email})`
+        }
         aria-label={isEn ? 'Sign Out' : 'Se déconnecter'}
         className="inline-flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-sky-950/80 hover:bg-rose-600 text-sky-200 hover:text-white border border-[#90D5FF]/50 hover:border-rose-400 text-[10px] sm:text-xs font-extrabold transition-all cursor-pointer shrink-0 shadow-xs"
       >
         <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-        <span className="hidden sm:inline">{isEn ? 'Sign Out' : 'Se déconnecter'}</span>
+        <span className="hidden sm:inline">
+          {isEn ? 'Sign Out' : 'Se déconnecter'}
+        </span>
       </button>
     </div>
   );

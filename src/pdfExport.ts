@@ -32,7 +32,11 @@ import {
   buildInstitutionalSlideDeck,
   isSlidePresentationDoc
 } from './slidePresentations';
-import { saveProgramFile } from './services/exportStorage';
+import {
+  ensureProgramDirectoryAccessBeforeHeavyTask,
+  saveProgramFile,
+  SaveProgramFileResult
+} from './services/exportStorage';
 
 export const ACRONYMS_LIST: Array<[string, string, string]> = [
   ['GAR', 'Gestion Axée sur les Résultats (Results-Based Management)', 'Méthodologie de pilotage orientée vers l’atteinte mesurable des impacts et livrables.'],
@@ -54,7 +58,8 @@ export async function generateDirectWhitePDF(
   userProfile: UserProfile,
   currency: CurrencyCode,
   lang: LanguageCode
-): Promise<void> {
+): Promise<SaveProgramFileResult> {
+  await ensureProgramDirectoryAccessBeforeHeavyTask();
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -688,7 +693,7 @@ export async function generateDirectWhitePDF(
 
   try {
     const pdfBlob = doc.output('blob');
-    await saveProgramFile({
+    return await saveProgramFile({
       programName: dossier.name,
       fileName: pdfFileName,
       content: pdfBlob,
@@ -696,6 +701,12 @@ export async function generateDirectWhitePDF(
     });
   } catch {
     doc.save(pdfFileName);
+    return {
+      success: true,
+      mode: 'download',
+      path: `faab-plan/${dossier.name}/${pdfFileName}`,
+      fileName: pdfFileName
+    };
   }
 }
 
@@ -709,9 +720,9 @@ export async function generateInstitutionalDocumentPDF(
   userProfile: UserProfile,
   currency: CurrencyCode,
   lang: LanguageCode
-): Promise<void> {
+): Promise<SaveProgramFileResult> {
   if (isSlidePresentationDoc(docType)) {
-    await generateSlidePresentationLandscapePDF(
+    return await generateSlidePresentationLandscapePDF(
       docType,
       customFields,
       dossier,
@@ -719,9 +730,9 @@ export async function generateInstitutionalDocumentPDF(
       currency,
       lang
     );
-    return;
   }
 
+  await ensureProgramDirectoryAccessBeforeHeavyTask();
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -1838,7 +1849,7 @@ export async function generateInstitutionalDocumentPDF(
   const pdfFileName = `FAAB_PLAN_${docType.toUpperCase()}_${(customFields.referenceCode || 'OFFICIEL').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
   try {
     const pdfBlob = doc.output('blob');
-    await saveProgramFile({
+    return await saveProgramFile({
       programName: dossier.name,
       fileName: pdfFileName,
       content: pdfBlob,
@@ -1846,6 +1857,12 @@ export async function generateInstitutionalDocumentPDF(
     });
   } catch {
     doc.save(pdfFileName);
+    return {
+      success: true,
+      mode: 'download',
+      path: `faab-plan/${dossier.name}/${pdfFileName}`,
+      fileName: pdfFileName
+    };
   }
 }
 
@@ -1860,7 +1877,8 @@ async function generateSlidePresentationLandscapePDF(
   userProfile: UserProfile,
   currency: CurrencyCode,
   lang: LanguageCode
-): Promise<void> {
+): Promise<SaveProgramFileResult> {
+  await ensureProgramDirectoryAccessBeforeHeavyTask();
   const slideW = 297;
   const slideH = 167.06; // Ratio 16:9 exact (297 / 16 * 9)
 
@@ -2179,51 +2197,51 @@ async function generateSlidePresentationLandscapePDF(
         cov.referenceCode || customFields.referenceCode || docType.toUpperCase();
 
       // 1. En-tête Institutionnel Symétrique (Bailleur à gauche | Agence Pilote à droite)
-      const hdrY = 6.5;
-      const hdrH = 35;
+      const hdrY = 6.0;
+      const hdrH = 34.0;
       doc.setFillColor(248, 250, 252);
       doc.setDrawColor(203, 213, 225);
       doc.setLineWidth(0.3);
       doc.roundedRect(marginX, hdrY, usableW, hdrH, 2, 2, 'FD');
 
       const colHalfW = usableW / 2 - 6;
-      const textBlockW = Number((colHalfW * 0.67).toFixed(2)); // Largeur réduite d'un tiers (67%)
+      const textBlockW = Number((colHalfW * 0.72).toFixed(2));
       const leftCenterX = marginX + colHalfW / 2 + 2;
       const rightCenterX = marginX + usableW - colHalfW / 2 - 2;
 
-      // Logos agrandis (18mm de haut ≈ 68px) centrés horizontalement au-dessus de leur zone de texte
+      // Logos centrés horizontalement au-dessus de leur zone de texte
       if (cov.leftLogoDataUrl) {
-        drawFittedImage(cov.leftLogoDataUrl, leftCenterX - 22, hdrY + 1.8, 44, 16.5);
+        drawFittedImage(cov.leftLogoDataUrl, leftCenterX - 21, hdrY + 1.5, 42, 15.2);
       } else {
         doc.setFillColor(12, 74, 110);
-        doc.roundedRect(leftCenterX - 18, hdrY + 2.5, 36, 14, 1.5, 1.5, 'F');
+        doc.roundedRect(leftCenterX - 18, hdrY + 2.0, 36, 13.5, 1.5, 1.5, 'F');
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(7.2);
         doc.setTextColor(144, 213, 255);
-        doc.text('BAILLEUR / PTF', leftCenterX, hdrY + 8.5, { align: 'center' });
+        doc.text('BAILLEUR / PTF', leftCenterX, hdrY + 7.8, { align: 'center' });
         doc.setFontSize(5.8);
         doc.setTextColor(255, 255, 255);
-        doc.text('COMMANDITAIRE', leftCenterX, hdrY + 13, { align: 'center' });
+        doc.text('COMMANDITAIRE', leftCenterX, hdrY + 12.2, { align: 'center' });
       }
 
       if (cov.rightLogoDataUrl) {
-        drawFittedImage(cov.rightLogoDataUrl, rightCenterX - 22, hdrY + 1.8, 44, 16.5);
+        drawFittedImage(cov.rightLogoDataUrl, rightCenterX - 21, hdrY + 1.5, 42, 15.2);
       } else {
         doc.setFillColor(2, 132, 199);
-        doc.roundedRect(rightCenterX - 18, hdrY + 2.5, 36, 14, 1.5, 1.5, 'F');
+        doc.roundedRect(rightCenterX - 18, hdrY + 2.0, 36, 13.5, 1.5, 1.5, 'F');
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(7.2);
         doc.setTextColor(255, 255, 255);
-        doc.text('UGP / PILOTE', rightCenterX, hdrY + 8.5, { align: 'center' });
+        doc.text('UGP / PILOTE', rightCenterX, hdrY + 7.8, { align: 'center' });
         doc.setFontSize(5.8);
         doc.setTextColor(224, 242, 254);
-        doc.text('AGENCE D’EXÉCUTION', rightCenterX, hdrY + 13, { align: 'center' });
+        doc.text('AGENCE D’EXÉCUTION', rightCenterX, hdrY + 12.2, { align: 'center' });
       }
 
       // Ligne 1 sous les logos : Nom de l'Organisation en GRAS alignés sur la même ligne horizontale
-      const orgBaselineY = hdrY + 22;
+      const orgBaselineY = hdrY + 20.5;
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.2);
+      doc.setFontSize(7.8);
       doc.setTextColor(12, 74, 110);
       const leftOrgLines = doc
         .splitTextToSize(cleanPdfText(leftOrg.toUpperCase()), textBlockW)
@@ -2233,18 +2251,18 @@ async function generateSlidePresentationLandscapePDF(
         .slice(0, 2);
 
       leftOrgLines.forEach((l: string, lIdx: number) => {
-        doc.text(l, leftCenterX, orgBaselineY + lIdx * 3.4, { align: 'center' });
+        doc.text(l, leftCenterX, orgBaselineY + lIdx * 3.2, { align: 'center' });
       });
       rightOrgLines.forEach((l: string, lIdx: number) => {
-        doc.text(l, rightCenterX, orgBaselineY + lIdx * 3.4, { align: 'center' });
+        doc.text(l, rightCenterX, orgBaselineY + lIdx * 3.2, { align: 'center' });
       });
 
       // Ligne 2 : Nom de la Direction / Unité de Gestion en style normal non gras alignés sur la même ligne horizontale
       const maxOrgLinesCount = Math.max(leftOrgLines.length, rightOrgLines.length, 1);
-      const deptBaselineY = orgBaselineY + maxOrgLinesCount * 3.4 + 0.8;
+      const deptBaselineY = orgBaselineY + maxOrgLinesCount * 3.2 + 0.6;
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.4);
+      doc.setFontSize(7.0);
       doc.setTextColor(71, 85, 105);
       const leftDeptLines = doc
         .splitTextToSize(cleanPdfText(leftDept), textBlockW)
@@ -2254,13 +2272,13 @@ async function generateSlidePresentationLandscapePDF(
         .slice(0, 2);
 
       leftDeptLines.forEach((l: string, lIdx: number) => {
-        doc.text(l, leftCenterX, deptBaselineY + lIdx * 3.1, { align: 'center' });
+        doc.text(l, leftCenterX, deptBaselineY + lIdx * 2.9, { align: 'center' });
       });
       rightDeptLines.forEach((l: string, lIdx: number) => {
-        doc.text(l, rightCenterX, deptBaselineY + lIdx * 3.1, { align: 'center' });
+        doc.text(l, rightCenterX, deptBaselineY + lIdx * 2.9, { align: 'center' });
       });
 
-      let curCoverY = hdrY + hdrH + 3.5;
+      let curCoverY = hdrY + hdrH + 2.5;
 
       // 2. Bannière / Image de l'intervention bien centrée sous l'en-tête institutionnel
       const coverImageToUse = cov.bannerImageDataUrl || slide.imageDataUrl;
@@ -2270,7 +2288,7 @@ async function generateSlidePresentationLandscapePDF(
 
       if (hasCoverVisual && coverImageToUse) {
         const bannerBoxW = 175;
-        const bannerBoxH = 24;
+        const bannerBoxH = 21.5;
         const bannerBoxX = marginX + (usableW - bannerBoxW) / 2;
         doc.setFillColor(248, 250, 252);
         doc.setDrawColor(186, 230, 253);
@@ -2278,92 +2296,153 @@ async function generateSlidePresentationLandscapePDF(
         drawFittedImage(
           coverImageToUse,
           bannerBoxX + 2,
-          curCoverY + 1.5,
+          curCoverY + 1.2,
           bannerBoxW - 4,
-          bannerBoxH - 3
+          bannerBoxH - 2.4
         );
-        curCoverY += bannerBoxH + 3;
+        curCoverY += bannerBoxH + 2.5;
       }
 
-      // 3. Cartouche Central du Titre Complet du Document (Zéro troncature)
-      const kpiReserveH = slide.kpiCards && slide.kpiCards.length > 0 ? 27 : 0;
-      const titleBoxH = Math.max(40, 150 - curCoverY - kpiReserveH);
+      // 3. Cartouche Central du Titre Complet du Document (Zéro débordement horizontal ou vertical)
+      const kpiReserveH = slide.kpiCards && slide.kpiCards.length > 0 ? 25.5 : 0;
+      const titleBoxH = Math.max(42, 150.5 - curCoverY - kpiReserveH);
 
       doc.setFillColor(12, 74, 110);
       doc.roundedRect(marginX, curCoverY, usableW, titleBoxH, 2.5, 2.5, 'F');
       doc.setFillColor(144, 213, 255);
       doc.rect(marginX, curCoverY + titleBoxH - 2, usableW, 2, 'F');
 
-      // Badge Réunion + Référence (sans jamais afficher "undefined")
-      const badgeStr = cleanPdfText(
+      // Badge Réunion + Référence (mesuré après application de la police exacte et borné à la largeur du cartouche)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.0);
+      const rawBadgeStr = cleanPdfText(
         `${cov.meetingBadge || slide.matrixBadge}  •  Réf. ${refCodeClean}`
       );
-      const badgeW = Math.min(usableW - 16, Math.max(85, doc.getTextWidth(badgeStr) + 14));
+      const badgeStr =
+        doc.splitTextToSize(rawBadgeStr, usableW - 26)[0] || rawBadgeStr;
+      const badgeW = Math.min(
+        usableW - 14,
+        Math.max(85, doc.getTextWidth(badgeStr) + 12)
+      );
       doc.setFillColor(2, 132, 199);
       doc.roundedRect(
         marginX + (usableW - badgeW) / 2,
-        curCoverY + 3.5,
+        curCoverY + 3.0,
         badgeW,
-        5.8,
+        5.4,
         1.5,
         1.5,
         'F'
       );
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.2);
       doc.setTextColor(224, 242, 254);
-      doc.text(badgeStr, marginX + usableW / 2, curCoverY + 7.4, {
+      doc.text(badgeStr, marginX + usableW / 2, curCoverY + 6.7, {
         align: 'center'
       });
 
-      // Titre Principal Complet sur 1 à 3 lignes (Zéro troncature)
+      // Préparation des lignes du bas du cartouche (Présentateur & Lieu/Date) avec retour à la ligne automatique
+      const presenterClean = cleanPdfText(cov.presenterLine || '');
+      const locDateClean = cleanPdfText(
+        cov.locationAndDate || cov.locationLine || dateStr
+      );
+      const combinedMetaStr =
+        presenterClean && locDateClean
+          ? `${presenterClean}   |   ${locDateClean}`
+          : presenterClean || locDateClean;
+
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(hasCoverVisual ? 14 : 16);
+      doc.setFontSize(7.0);
+      const maxMetaWidth = usableW - 16;
+      let metaLines: string[] = [];
+      if (combinedMetaStr) {
+        if (doc.getTextWidth(combinedMetaStr) <= maxMetaWidth) {
+          metaLines = [combinedMetaStr];
+        } else if (presenterClean && locDateClean) {
+          const pWrapped = doc
+            .splitTextToSize(presenterClean, maxMetaWidth)
+            .slice(0, 1);
+          const lWrapped = doc
+            .splitTextToSize(locDateClean, maxMetaWidth)
+            .slice(0, 1);
+          metaLines = [...pWrapped, ...lWrapped].filter(Boolean);
+        } else {
+          metaLines = doc
+            .splitTextToSize(combinedMetaStr, maxMetaWidth)
+            .slice(0, 2);
+        }
+      }
+
+      const metaLineStep = 3.1;
+      const metaBandHeight =
+        metaLines.length > 0 ? metaLines.length * metaLineStep + 3.5 : 2;
+      const maxSubBottomY = curCoverY + titleBoxH - metaBandHeight - 1.5;
+
+      // Titre Principal Complet (ajusté automatiquement pour ne jamais entrer en collision avec le bas du cartouche)
+      doc.setFont('helvetica', 'bold');
+      const titleFontSize = hasCoverVisual ? 13 : 15;
+      const titleLineStep = hasCoverVisual ? 5.1 : 5.6;
+      doc.setFontSize(titleFontSize);
       doc.setTextColor(255, 255, 255);
+      const maxTitleLines = hasCoverVisual ? 2 : 3;
       const titleLines = doc
         .splitTextToSize(cleanPdfText(slide.title), usableW - 18)
-        .slice(0, 3);
-      const titleStartY = curCoverY + (hasCoverVisual ? 15 : 17);
+        .slice(0, maxTitleLines);
+      const titleStartY = curCoverY + (hasCoverVisual ? 13.8 : 15.8);
       titleLines.forEach((line: string, lIdx: number) => {
-        doc.text(line, marginX + usableW / 2, titleStartY + lIdx * 5.8, {
+        doc.text(line, marginX + usableW / 2, titleStartY + lIdx * titleLineStep, {
           align: 'center'
         });
       });
 
       // Sous-titre Complet
-      const subY = titleStartY + titleLines.length * 5.8 + 1.5;
+      const subY = titleStartY + titleLines.length * titleLineStep + 1.0;
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9.5);
+      doc.setFontSize(hasCoverVisual ? 8.6 : 9.2);
       doc.setTextColor(144, 213, 255);
-      const subLines = doc
+      const subLineStep = hasCoverVisual ? 3.7 : 4.0;
+      const rawSubLines = doc
         .splitTextToSize(cleanPdfText(slide.subtitle), usableW - 20)
         .slice(0, 2);
-      subLines.forEach((line: string, lIdx: number) => {
-        doc.text(line, marginX + usableW / 2, subY + lIdx * 4.2, {
-          align: 'center'
-        });
+      rawSubLines.forEach((line: string, lIdx: number) => {
+        const lineY = subY + lIdx * subLineStep;
+        if (lineY <= maxSubBottomY) {
+          doc.text(line, marginX + usableW / 2, lineY, {
+            align: 'center'
+          });
+        }
       });
 
-      // Présentateur & Lieu/Date dans le bas du cartouche si l'espace le permet
-      const metaY = curCoverY + titleBoxH - 4.5;
-      if (metaY > subY + subLines.length * 4.2 + 2) {
+      // Présentateur & Lieu/Date strictement contenus à l'intérieur du cartouche marine
+      if (metaLines.length > 0) {
+        const sepMetaY =
+          curCoverY + titleBoxH - 2 - metaLines.length * metaLineStep - 2.2;
+        if (sepMetaY > subY + 2) {
+          doc.setDrawColor(2, 132, 199);
+          doc.setLineWidth(0.2);
+          doc.line(marginX + 12, sepMetaY, marginX + usableW - 12, sepMetaY);
+        }
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(7.6);
+        doc.setFontSize(7.0);
         doc.setTextColor(240, 249, 255);
-        doc.text(
-          cleanPdfText(
-            `${cov.presenterLine || ''}   |   ${cov.locationAndDate || cov.locationLine || dateStr}`
-          ),
-          marginX + usableW / 2,
-          metaY,
-          { align: 'center' }
-        );
+        const firstMetaY =
+          curCoverY +
+          titleBoxH -
+          2 -
+          (metaLines.length - 1) * metaLineStep -
+          2.0;
+        metaLines.forEach((mLine: string, mIdx: number) => {
+          doc.text(
+            mLine,
+            marginX + usableW / 2,
+            firstMetaY + mIdx * metaLineStep,
+            { align: 'center' }
+          );
+        });
       }
 
-      // 4. Bande des Cartes KPI en bas de la Slide 1 (Sans aucune troncature)
+      // 4. Bande des Cartes KPI en bas de la Slide 1 (Sans aucune troncature ni débordement)
       if (slide.kpiCards && slide.kpiCards.length > 0) {
-        const kpiY = curCoverY + titleBoxH + 3;
-        const kpiH = 23.5;
+        const kpiY = curCoverY + titleBoxH + 2.5;
+        const kpiH = 23.0;
         const kpiCount = Math.min(4, slide.kpiCards.length);
         const gap = 3;
         const kpiW = (usableW - gap * (kpiCount - 1)) / kpiCount;
@@ -2377,34 +2456,40 @@ async function generateSlidePresentationLandscapePDF(
           doc.rect(kx, kpiY, 1.8, kpiH, 'F');
 
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(6.6);
+          doc.setFontSize(6.4);
           doc.setTextColor(71, 85, 105);
           const lblLines = doc
-            .splitTextToSize(cleanPdfText(kpi.label.toUpperCase()), kpiW - 5)
+            .splitTextToSize(cleanPdfText(kpi.label.toUpperCase()), kpiW - 5.5)
             .slice(0, 2);
-          doc.text(lblLines, kx + 3.5, kpiY + 4.5);
+          doc.text(lblLines, kx + 3.5, kpiY + 4.2);
 
-          const valStartY = kpiY + 4.5 + lblLines.length * 2.8 + 2.2;
+          const valStartY = kpiY + 4.2 + lblLines.length * 2.6 + 2.0;
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(10.5);
+          doc.setFontSize(10.0);
+          const cleanVal = cleanPdfText(kpi.value);
+          if (doc.getTextWidth(cleanVal) > kpiW - 6) {
+            doc.setFontSize(8.6);
+          }
           doc.setTextColor(12, 74, 110);
           const valLines = doc
-            .splitTextToSize(cleanPdfText(kpi.value), kpiW - 5)
+            .splitTextToSize(cleanVal, kpiW - 5.5)
             .slice(0, 2);
           doc.text(valLines, kx + 3.5, valStartY);
 
           if (kpi.subtext) {
-            const subStartY = Math.min(
-              kpiY + kpiH - 2,
-              valStartY + valLines.length * 3.8 + 1.2
-            );
+            const subStartY = valStartY + valLines.length * 3.4 + 0.8;
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(6.4);
+            doc.setFontSize(6.0);
             doc.setTextColor(100, 116, 139);
             const subKpiLines = doc
-              .splitTextToSize(cleanPdfText(kpi.subtext), kpiW - 5)
+              .splitTextToSize(cleanPdfText(kpi.subtext), kpiW - 5.5)
               .slice(0, 2);
-            doc.text(subKpiLines[0] || '', kx + 3.5, subStartY);
+            subKpiLines.forEach((sLine: string, sIdx: number) => {
+              const sy = subStartY + sIdx * 2.3;
+              if (sy <= kpiY + kpiH - 1.2) {
+                doc.text(sLine, kx + 3.5, sy);
+              }
+            });
           }
         });
       }
@@ -2434,44 +2519,51 @@ async function generateSlidePresentationLandscapePDF(
 
       const availHeaderW = rightLimitX - titleStartX;
 
-      // Badge Matrice au-dessus du titre pour laisser 100% de la largeur au Titre Principal
-      const badgeText = cleanPdfText(slide.matrixBadge);
-      const badgeBoxW = Math.min(availHeaderW, Math.max(48, doc.getTextWidth(badgeText) + 8));
-      doc.setFillColor(12, 74, 110);
-      doc.roundedRect(titleStartX, topY, badgeBoxW, 4.6, 1, 1, 'F');
+      // Badge Matrice au-dessus du titre (police définie avant getTextWidth pour éviter tout débordement)
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(6.4);
+      const rawBadgeText = cleanPdfText(slide.matrixBadge);
+      const badgeText =
+        doc.splitTextToSize(rawBadgeText, availHeaderW - 6)[0] || rawBadgeText;
+      const badgeBoxW = Math.min(
+        availHeaderW,
+        Math.max(48, doc.getTextWidth(badgeText) + 7)
+      );
+      doc.setFillColor(12, 74, 110);
+      doc.roundedRect(titleStartX, topY, badgeBoxW, 4.6, 1, 1, 'F');
       doc.setTextColor(144, 213, 255);
       doc.text(badgeText, titleStartX + 2.5, topY + 3.3);
 
       // Titre Principal de la Slide affiché intégralement sur 1 à 2 lignes (sans troncature)
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
+      doc.setFontSize(11.5);
       doc.setTextColor(15, 23, 42);
       const slideTitleLines = doc
         .splitTextToSize(cleanPdfText(slide.title), availHeaderW)
         .slice(0, 2);
       doc.text(slideTitleLines, titleStartX, topY + 9);
 
-      const nextHeaderY = topY + 9 + slideTitleLines.length * 4.5;
+      const nextHeaderY = topY + 9 + slideTitleLines.length * 4.3;
+      let subBottomY = nextHeaderY;
       if (slide.subtitle) {
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8.2);
+        doc.setFontSize(8.0);
         doc.setTextColor(71, 85, 105);
         const slideSubLines = doc
           .splitTextToSize(cleanPdfText(slide.subtitle), availHeaderW)
           .slice(0, 2);
         doc.text(slideSubLines, titleStartX, nextHeaderY);
+        subBottomY = nextHeaderY + (slideSubLines.length - 1) * 3.2 + 2.8;
       }
 
-      const separatorLineY = Math.max(23.5, nextHeaderY + 3.5);
+      const separatorLineY = Math.max(23.5, subBottomY);
       doc.setDrawColor(12, 74, 110);
       doc.setLineWidth(0.45);
       doc.line(marginX, separatorLineY, marginX + usableW, separatorLineY);
 
       let contentTopY = separatorLineY + 2.5;
 
-      // (2) Bande des Cartes KPI (Sans aucune troncature)
+      // (2) Bande des Cartes KPI (Sans aucune troncature ni débordement)
       if (slide.kpiCards && slide.kpiCards.length > 0) {
         const kpiH = 20.5;
         const kpiCount = Math.min(4, slide.kpiCards.length);
@@ -2487,38 +2579,44 @@ async function generateSlidePresentationLandscapePDF(
           doc.rect(kx, contentTopY, 1.6, kpiH, 'F');
 
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(6.3);
+          doc.setFontSize(6.2);
           doc.setTextColor(71, 85, 105);
           const kpiLblLines = doc
-            .splitTextToSize(cleanPdfText(kpi.label.toUpperCase()), kpiW - 5)
+            .splitTextToSize(cleanPdfText(kpi.label.toUpperCase()), kpiW - 5.5)
             .slice(0, 2);
-          doc.text(kpiLblLines, kx + 3.2, contentTopY + 4.2);
+          doc.text(kpiLblLines, kx + 3.2, contentTopY + 4.0);
 
-          const kpiValY = contentTopY + 4.2 + kpiLblLines.length * 2.6 + 2;
+          const kpiValY = contentTopY + 4.0 + kpiLblLines.length * 2.5 + 1.8;
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(9.8);
+          doc.setFontSize(9.5);
+          const cleanKpiVal = cleanPdfText(kpi.value);
+          if (doc.getTextWidth(cleanKpiVal) > kpiW - 6) {
+            doc.setFontSize(8.2);
+          }
           doc.setTextColor(12, 74, 110);
           const kpiValLines = doc
-            .splitTextToSize(cleanPdfText(kpi.value), kpiW - 5)
+            .splitTextToSize(cleanKpiVal, kpiW - 5.5)
             .slice(0, 2);
           doc.text(kpiValLines, kx + 3.2, kpiValY);
 
           if (kpi.subtext) {
-            const kpiSubY = Math.min(
-              contentTopY + kpiH - 1.8,
-              kpiValY + kpiValLines.length * 3.5 + 1
-            );
+            const kpiSubY = kpiValY + kpiValLines.length * 3.2 + 0.6;
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(6.2);
+            doc.setFontSize(5.8);
             doc.setTextColor(100, 116, 139);
             const kpiSubLines = doc
-              .splitTextToSize(cleanPdfText(kpi.subtext), kpiW - 5)
-              .slice(0, 1);
-            doc.text(kpiSubLines[0] || '', kx + 3.2, kpiSubY);
+              .splitTextToSize(cleanPdfText(kpi.subtext), kpiW - 5.5)
+              .slice(0, 2);
+            kpiSubLines.forEach((sLine: string, sIdx: number) => {
+              const sy = kpiSubY + sIdx * 2.2;
+              if (sy <= contentTopY + kpiH - 1.2) {
+                doc.text(sLine, kx + 3.2, sy);
+              }
+            });
           }
         });
 
-        contentTopY += kpiH + 3.5;
+        contentTopY += kpiH + 3.2;
       }
 
       const reserveBottomForSig = slide.isFinalSlide && includeSignatures ? 22 : 0;
@@ -2531,7 +2629,7 @@ async function generateSlidePresentationLandscapePDF(
 
       // (3) Cas A : La Slide contient un Graphique Vectoriel (Donut ou Histogramme Barres)
       if (hasChart && slide.chart) {
-        const chartBoxW = Number((usableW * 0.56).toFixed(2));
+        const chartBoxW = Number((usableW * (hasTable ? 0.50 : 0.56)).toFixed(2));
         const rightColX = marginX + chartBoxW + 4;
         const rightColW = usableW - chartBoxW - 4;
 
@@ -2544,19 +2642,19 @@ async function generateSlidePresentationLandscapePDF(
             margin: { left: rightColX, right: marginX },
             tableWidth: rightColW,
             head: [slide.table.headers.map(h => cleanPdfText(h))],
-            body: slide.table.rows.slice(0, 5).map(r => r.map(c => cleanPdfText(c))),
+            body: slide.table.rows.slice(0, 4).map(r => r.map(c => cleanPdfText(c))),
             theme: 'grid',
             styles: {
               fillColor: [255, 255, 255],
               textColor: [15, 23, 42],
-              fontSize: 6.4,
-              cellPadding: 1.3,
+              fontSize: 6.2,
+              cellPadding: 1.1,
               overflow: 'linebreak'
             },
             headStyles: {
               fillColor: [12, 74, 110],
               textColor: [255, 255, 255],
-              fontSize: 6.6,
+              fontSize: 6.4,
               fontStyle: 'bold'
             }
           });
@@ -2637,8 +2735,8 @@ async function generateSlidePresentationLandscapePDF(
         const gap = 3.5;
         const cardW = (usableW - gap * (cardsCount - 1)) / cardsCount;
         const hasBottomBullets = slide.bullets.length > 0;
-        const synthBoxH = hasBottomBullets ? 16 : 0;
-        const cardH = Math.max(42, availBodyH - (hasBottomBullets ? synthBoxH + 3.5 : 0));
+        const synthBoxH = hasBottomBullets ? 17.5 : 0;
+        const cardH = Math.max(40, availBodyH - (hasBottomBullets ? synthBoxH + 3 : 0));
 
         slide.threeCards.slice(0, cardsCount).forEach((card, cIdx) => {
           const cx = marginX + cIdx * (cardW + gap);
@@ -2685,22 +2783,27 @@ async function generateSlidePresentationLandscapePDF(
           });
         });
 
-        // Bandeau de synthèse bien séparé en bas (ne recouvre jamais les 3 cartes)
+        // Bandeau de synthèse bien séparé en bas (ne recouvre jamais les 3 cartes et gère le retour à la ligne)
         if (hasBottomBullets) {
-          const synthY = contentTopY + cardH + 3.5;
+          const synthY = contentTopY + cardH + 3;
           doc.setFillColor(240, 249, 255);
           doc.setDrawColor(186, 230, 253);
           doc.roundedRect(marginX, synthY, usableW, synthBoxH, 1.8, 1.8, 'FD');
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(7.4);
+          doc.setFontSize(7);
           doc.setTextColor(12, 74, 110);
-          let by = synthY + 4.8;
+          let by = synthY + 4.3;
           slide.bullets.slice(0, 3).forEach(b => {
-            if (by < synthY + synthBoxH - 1.5) {
-              const line =
-                doc.splitTextToSize(cleanPdfText(`• ${b}`), usableW - 8)[0] || '';
-              doc.text(line, marginX + 4, by);
-              by += 4.2;
+            const bLines = doc
+              .splitTextToSize(cleanPdfText(`• ${b}`), usableW - 8)
+              .slice(0, 2);
+            const neededH = (bLines.length - 1) * 3.1;
+            if (by + neededH <= synthY + synthBoxH - 1.5) {
+              doc.text(bLines, marginX + 4, by);
+              by += bLines.length * 3.1 + 1;
+            } else if (by <= synthY + synthBoxH - 1.5 && bLines.length > 0) {
+              doc.text(bLines[0], marginX + 4, by);
+              by += 4;
             }
           });
         }
@@ -2734,15 +2837,20 @@ async function generateSlidePresentationLandscapePDF(
           doc.setDrawColor(186, 230, 253);
           doc.roundedRect(marginX, afterTableY, usableW, remH, 1.5, 1.5, 'FD');
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(7.4);
+          doc.setFontSize(7);
           doc.setTextColor(12, 74, 110);
-          let by = afterTableY + 4.5;
-          slide.bullets.slice(0, 2).forEach(b => {
-            if (by < bodyMaxBottomY - 1.5) {
-              const line =
-                doc.splitTextToSize(cleanPdfText(`• ${b}`), usableW - 6)[0] || '';
-              doc.text(line, marginX + 3, by);
-              by += 4.2;
+          let by = afterTableY + 4.3;
+          slide.bullets.slice(0, 3).forEach(b => {
+            const bLines = doc
+              .splitTextToSize(cleanPdfText(`• ${b}`), usableW - 8)
+              .slice(0, 2);
+            const neededH = (bLines.length - 1) * 3.1;
+            if (by + neededH <= bodyMaxBottomY - 1.5) {
+              doc.text(bLines, marginX + 4, by);
+              by += bLines.length * 3.1 + 1;
+            } else if (by <= bodyMaxBottomY - 1.5 && bLines.length > 0) {
+              doc.text(bLines[0], marginX + 4, by);
+              by += 4;
             }
           });
         }
@@ -2803,7 +2911,7 @@ async function generateSlidePresentationLandscapePDF(
         }
       }
 
-      // Bloc de Signature conditionnel sur la dernière Slide
+      // Bloc de Signature conditionnel sur la dernière Slide (Zéro débordement horizontal)
       if (slide.isFinalSlide && includeSignatures) {
         const sigY = 130.5;
         const sigH = 19.5;
@@ -2814,66 +2922,91 @@ async function generateSlidePresentationLandscapePDF(
         doc.roundedRect(marginX, sigY, boxW, sigH, 1.5, 1.5, 'FD');
         doc.roundedRect(marginX + boxW + 4, sigY, boxW, sigH, 1.5, 1.5, 'FD');
 
+        // Boîte gauche : Équipe Projet / UGP
+        const leftTextMaxW = customFields.orgStampDataUrl ? boxW - 27 : boxW - 6;
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(6.8);
+        doc.setFontSize(6.2);
         doc.setTextColor(12, 74, 110);
-        doc.text(
-          cleanPdfText(
-            `POUR L'ÉQUIPE PROJET / UGP (${userProfile.institution || 'STRUCTURE PILOTE'})`
-          ),
-          marginX + 3,
-          sigY + 4.8
-        );
+        const leftOrgLines = doc
+          .splitTextToSize(
+            cleanPdfText(
+              `POUR L'ÉQUIPE PROJET / UGP (${userProfile.institution || 'STRUCTURE PILOTE'})`
+            ),
+            leftTextMaxW
+          )
+          .slice(0, 2);
+        doc.text(leftOrgLines, marginX + 3, sigY + 4.2);
+
+        const leftRepStartY = sigY + 4.2 + leftOrgLines.length * 2.7 + 0.6;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.2);
         doc.setTextColor(15, 23, 42);
-        doc.text(
-          cleanPdfText(`${userProfile.fullName} — ${userProfile.role}`),
-          marginX + 3,
-          sigY + 9.5
-        );
+        const leftRepLines = doc
+          .splitTextToSize(
+            cleanPdfText(`${userProfile.fullName} — ${userProfile.role}`),
+            leftTextMaxW
+          )
+          .slice(0, 2);
+        doc.text(leftRepLines, marginX + 3, leftRepStartY);
+
         doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6);
         doc.setTextColor(100, 116, 139);
-        doc.text('Visa & Signature : _______________________', marginX + 3, sigY + 15.5);
+        doc.text('Visa & Signature : _______________________', marginX + 3, sigY + 17.2);
 
         if (customFields.orgStampDataUrl) {
           drawFittedImage(
             customFields.orgStampDataUrl,
-            marginX + boxW - 24,
+            marginX + boxW - 23,
             sigY + 2,
             20,
             15
           );
         }
 
+        // Boîte droite : Comité de Pilotage / Bailleur
         const rX = marginX + boxW + 4;
+        const rightTextMaxW = customFields.partnerStampDataUrl ? boxW - 27 : boxW - 6;
         doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.2);
         doc.setTextColor(12, 74, 110);
-        doc.text(
-          cleanPdfText(
-            `POUR LE COMITÉ DE PILOTAGE / BAILLEUR (${customFields.recipientOrg || 'PARTENAIRE'})`
-          ),
-          rX + 3,
-          sigY + 4.8
-        );
+        const rightOrgLines = doc
+          .splitTextToSize(
+            cleanPdfText(
+              `POUR LE COMITÉ DE PILOTAGE / BAILLEUR (${customFields.recipientOrg || 'PARTENAIRE'})`
+            ),
+            rightTextMaxW
+          )
+          .slice(0, 2);
+        doc.text(rightOrgLines, rX + 3, sigY + 4.2);
+
+        const rightRepStartY = sigY + 4.2 + rightOrgLines.length * 2.7 + 0.6;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.2);
         doc.setTextColor(15, 23, 42);
-        doc.text(
-          cleanPdfText(
-            customFields.recipientRepresentative || 'Président du Comité de Pilotage'
-          ),
-          rX + 3,
-          sigY + 9.5
-        );
+        const rightRepLines = doc
+          .splitTextToSize(
+            cleanPdfText(
+              customFields.recipientRepresentative || 'Président du Comité de Pilotage'
+            ),
+            rightTextMaxW
+          )
+          .slice(0, 2);
+        doc.text(rightRepLines, rX + 3, rightRepStartY);
+
         doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6);
         doc.setTextColor(100, 116, 139);
         doc.text(
           'Décision & Quitus (« Lu et approuvé ») : _______________________',
           rX + 3,
-          sigY + 15.5
+          sigY + 17.2
         );
 
         if (customFields.partnerStampDataUrl) {
           drawFittedImage(
             customFields.partnerStampDataUrl,
-            rX + boxW - 24,
+            rX + boxW - 23,
             sigY + 2,
             20,
             15
@@ -2917,7 +3050,7 @@ async function generateSlidePresentationLandscapePDF(
   const pdfFileName = `FAAB_PLAN_${docType.toUpperCase()}_16x9_${(customFields.referenceCode || 'SLIDES').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
   try {
     const pdfBlob = doc.output('blob');
-    await saveProgramFile({
+    return await saveProgramFile({
       programName: dossier.name,
       fileName: pdfFileName,
       content: pdfBlob,
@@ -2925,6 +3058,12 @@ async function generateSlidePresentationLandscapePDF(
     });
   } catch {
     doc.save(pdfFileName);
+    return {
+      success: true,
+      mode: 'download',
+      path: `faab-plan/${dossier.name}/${pdfFileName}`,
+      fileName: pdfFileName
+    };
   }
 }
 
@@ -2936,7 +3075,8 @@ export async function generateBusinessCardPDF(
   dossier: Dossier,
   effectiveCompanyLogo: string,
   lang: LanguageCode
-): Promise<void> {
+): Promise<SaveProgramFileResult> {
+  await ensureProgramDirectoryAccessBeforeHeavyTask();
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -3018,7 +3158,7 @@ export async function generateBusinessCardPDF(
     doc.roundedRect(qx, qy, qSize, qSize, 1.2, 1.2, 'F');
     doc.setFillColor(12, 74, 110);
     const n = vCardQrMatrix.length;
-    const quiet = 1.5;
+    const quiet = 3.5;
     const u = qSize / (n + quiet * 2);
     for (let r = 0; r < n; r++) {
       for (let c = 0; c < n; c++) {
@@ -3026,8 +3166,8 @@ export async function generateBusinessCardPDF(
           doc.rect(
             qx + (c + quiet) * u,
             qy + (r + quiet) * u,
-            u + 0.04,
-            u + 0.04,
+            u + 0.03,
+            u + 0.03,
             'F'
           );
         }
@@ -3036,31 +3176,19 @@ export async function generateBusinessCardPDF(
   };
 
 
-  const drawSingleBusinessCardPair = (rowY: number, pairNumber: number) => {
-    const cardW = 85;
-    const cardH = 55;
-    const rectoX = 16;
-    const versoX = 109;
-
-    // Labels above cards
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(12, 74, 110);
-    doc.text(
-      `JEU #${pairNumber} — RECTO OFFICIEL (85 × 55 mm — Échelle 1:1)`,
-      rectoX,
-      rowY - 2.5
-    );
-    doc.text(
-      `JEU #${pairNumber} — VERSO INSTITUTIONNEL & QR VCARD (85 × 55 mm — Échelle 1:1)`,
-      versoX,
-      rowY - 2.5
-    );
-
-    // ================= RECTO (85 x 55 mm) =================
-    drawCropMarks(rectoX, rowY, cardW, cardH);
+  const drawBusinessCardRecto = (
+    rectoX: number,
+    rowY: number,
+    cardW: number,
+    cardH: number,
+    isFullBleedPvc = false
+  ) => {
     doc.setFillColor(12, 74, 110);
-    doc.roundedRect(rectoX, rowY, cardW, cardH, 2.5, 2.5, 'F');
+    if (isFullBleedPvc) {
+      doc.rect(rectoX, rowY, cardW, cardH, 'F');
+    } else {
+      doc.roundedRect(rectoX, rowY, cardW, cardH, 2.5, 2.5, 'F');
+    }
     // Subtle decorative accent band at top
     doc.setFillColor(3, 105, 161);
     doc.rect(rectoX, rowY + 16.5, cardW, 0.6, 'F');
@@ -3168,11 +3296,21 @@ export async function generateBusinessCardPDF(
       `Siège : ${profile.officeAddress || profile.residenceCity || 'Abidjan, Côte d’Ivoire'}`
     );
     doc.text(doc.splitTextToSize(addrStr, cardW - 7)[0] || '', rectoX + 3.5, rowY + 50.5);
+  };
 
-    // ================= VERSO (85 x 55 mm) =================
-    drawCropMarks(versoX, rowY, cardW, cardH);
+  const drawBusinessCardVerso = (
+    versoX: number,
+    rowY: number,
+    cardW: number,
+    cardH: number,
+    isFullBleedPvc = false
+  ) => {
     doc.setFillColor(15, 23, 42);
-    doc.roundedRect(versoX, rowY, cardW, cardH, 2.5, 2.5, 'F');
+    if (isFullBleedPvc) {
+      doc.rect(versoX, rowY, cardW, cardH, 'F');
+    } else {
+      doc.roundedRect(versoX, rowY, cardW, cardH, 2.5, 2.5, 'F');
+    }
 
     // Top metadata line on Verso
     doc.setFont('helvetica', 'bold');
@@ -3190,11 +3328,11 @@ export async function generateBusinessCardPDF(
     doc.text(progShort, versoX + cardW - 4, rowY + 5.5, { align: 'right' });
 
     // QR Code on Verso left
-    drawVectorQrCode(versoX + 6, rowY + 13, 22);
+    drawVectorQrCode(versoX + 4.5, rowY + 11.5, 25.5);
 
     // Company Logo & Slogan on Verso right
-    const vRightX = versoX + 32;
-    const vRightW = cardW - 36;
+    const vRightX = versoX + 33;
+    const vRightW = cardW - 37;
     if (effectiveCompanyLogo) {
       doc.setFillColor(255, 255, 255);
       doc.roundedRect(vRightX, rowY + 12.5, 20, 9.5, 1, 1, 'F');
@@ -3248,6 +3386,34 @@ export async function generateBusinessCardPDF(
       rowY + 50.8,
       { align: 'center' }
     );
+  };
+
+  const drawSingleBusinessCardPair = (rowY: number, pairNumber: number) => {
+    const cardW = 85;
+    const cardH = 55;
+    const rectoX = 16;
+    const versoX = 109;
+
+    // Labels above cards
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(12, 74, 110);
+    doc.text(
+      `JEU #${pairNumber} — RECTO OFFICIEL (85 × 55 mm — Échelle 1:1 Papier & PVC)`,
+      rectoX,
+      rowY - 2.5
+    );
+    doc.text(
+      `JEU #${pairNumber} — VERSO INSTITUTIONNEL & QR VCARD (85 × 55 mm — Échelle 1:1)`,
+      versoX,
+      rowY - 2.5
+    );
+
+    drawCropMarks(rectoX, rowY, cardW, cardH);
+    drawBusinessCardRecto(rectoX, rowY, cardW, cardH, false);
+
+    drawCropMarks(versoX, rowY, cardW, cardH);
+    drawBusinessCardVerso(versoX, rowY, cardW, cardH, false);
   };
 
   // Top A4 Header Banner
@@ -3323,12 +3489,19 @@ export async function generateBusinessCardPDF(
   doc.setTextColor(100, 116, 139);
   doc.text(
     cleanText(
-      `FAAB PLAN · Planche Carte de Visite (85×55mm) avec repères de coupe · ${profile.fullName}`
+      `FAAB PLAN · Planche Carte de Visite (85×55mm Papier A4 & Cartes PVC) · ${profile.fullName}`
     ),
     16,
     pageHeight - 7
   );
-  doc.text('Page 1 / 1', pageWidth - 16, pageHeight - 7, { align: 'right' });
+  doc.text('Page 1 / 3 (Planche Papier A4)', pageWidth - 16, pageHeight - 7, { align: 'right' });
+
+  // Pages 2 & 3 : Format Natif 85 x 55 mm (Échelle 1:1 Plein Bord pour Imprimantes Cartes PVC)
+  doc.addPage([85, 55], 'landscape');
+  drawBusinessCardRecto(0, 0, 85, 55, true);
+
+  doc.addPage([85, 55], 'landscape');
+  drawBusinessCardVerso(0, 0, 85, 55, true);
 
   try {
     doc.autoPrint();
@@ -3342,14 +3515,28 @@ export async function generateBusinessCardPDF(
   const pdfFileName = `FAAB_PLAN_CARTE_VISITE_85x55MM_${safeSlug}.pdf`;
   try {
     const pdfBlob = doc.output('blob');
-    await saveProgramFile({
+    const saved = await saveProgramFile({
       programName: dossier.name,
       fileName: pdfFileName,
       content: pdfBlob,
       mimeType: 'application/pdf'
     });
+    if (saved.method === 'dev-server' || saved.method === 'fs-api') {
+      try {
+        doc.save(pdfFileName);
+      } catch {
+        // ignore
+      }
+    }
+    return saved;
   } catch {
     doc.save(pdfFileName);
+    return {
+      success: true,
+      mode: 'download',
+      path: `faab-plan/${dossier.name}/${pdfFileName}`,
+      fileName: pdfFileName
+    };
   }
 }
 
@@ -3361,7 +3548,8 @@ export async function generateProfessionalBadgePDF(
   dossier: Dossier,
   effectiveCompanyLogo: string,
   lang: LanguageCode
-): Promise<void> {
+): Promise<SaveProgramFileResult> {
+  await ensureProgramDirectoryAccessBeforeHeavyTask();
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -3489,271 +3677,296 @@ export async function generateProfessionalBadgePDF(
   // =========================================================================
   // 1. RECTO DU BADGE VERTICAL (54 x 86 mm)
   // =========================================================================
-  drawCropMarks(rectoX, badgeY, badgeW, badgeH);
-  doc.setFillColor(255, 255, 255);
-  doc.setDrawColor(12, 74, 110);
-  doc.setLineWidth(0.45);
-  doc.roundedRect(rectoX, badgeY, badgeW, badgeH, 3, 3, 'FD');
+  const drawBadgeRecto = (
+    rx: number,
+    by: number,
+    bw: number,
+    bh: number,
+    isFullBleedPvc = false
+  ) => {
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(12, 74, 110);
+    doc.setLineWidth(0.45);
+    if (isFullBleedPvc) {
+      doc.rect(rx, by, bw, bh, 'F');
+    } else {
+      doc.roundedRect(rx, by, bw, bh, 3, 3, 'FD');
+    }
 
-  // Lanyard Slot (Fente cordon lanière)
-  doc.setFillColor(226, 232, 240);
-  doc.setDrawColor(148, 163, 184);
-  doc.setLineWidth(0.25);
-  doc.roundedRect(rectoX + (badgeW - 13) / 2, badgeY + 3, 13, 2.6, 1.2, 1.2, 'FD');
+    // Lanyard Slot (Fente cordon lanière)
+    doc.setFillColor(226, 232, 240);
+    doc.setDrawColor(148, 163, 184);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(rx + (bw - 13) / 2, by + 3, 13, 2.6, 1.2, 1.2, 'FD');
 
-  // Company Logo on Badge Header
-  if (effectiveCompanyLogo) {
-    safeDrawImage(
-      effectiveCompanyLogo,
-      rectoX + (badgeW - 24) / 2,
-      badgeY + 7.2,
-      24,
-      8.5,
-      false
+    // Company Logo on Badge Header
+    if (effectiveCompanyLogo) {
+      safeDrawImage(
+        effectiveCompanyLogo,
+        rx + (bw - 24) / 2,
+        by + 7.2,
+        24,
+        8.5,
+        false
+      );
+    } else {
+      doc.setFillColor(12, 74, 110);
+      doc.roundedRect(rx + (bw - 14) / 2, by + 7.5, 14, 7, 1, 1, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(5.5);
+      doc.setTextColor(144, 213, 255);
+      doc.text('PILOTE', rx + bw / 2, by + 12, { align: 'center' });
+    }
+
+    // Executing Org Name & Badge Subtitle
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.2);
+    doc.setTextColor(12, 74, 110);
+    const orgBadgeLines = doc.splitTextToSize(
+      cleanText((profile.executingOrgName || 'ORGANISME PILOTE').toUpperCase()),
+      bw - 5
     );
-  } else {
+    doc.text(orgBadgeLines[0] || '', rx + bw / 2, by + 19, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(4.7);
+    doc.setTextColor(100, 116, 139);
+    doc.text(
+      "CARTE D'IDENTIFICATION & D'ACCES",
+      rx + bw / 2,
+      by + 22.2,
+      { align: 'center' }
+    );
+
+    // Collaborator Photo Frame (24 mm x 30 mm)
+    const photoW = 24;
+    const photoH = 30;
+    const photoX = rx + (bw - photoW) / 2;
+    const photoY = by + 24.5;
+    doc.setFillColor(240, 249, 255);
+    doc.setDrawColor(12, 74, 110);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(photoX, photoY, photoW, photoH, 1.5, 1.5, 'FD');
+
+    const hasMemberPhoto = safeDrawImage(
+      profile.photoDataUrl,
+      photoX + 0.6,
+      photoY + 0.6,
+      photoW - 1.2,
+      photoH - 1.2,
+      true
+    );
+    if (!hasMemberPhoto) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor(2, 132, 199);
+      doc.text('PHOTO', rx + bw / 2, photoY + photoH / 2 - 1, { align: 'center' });
+      doc.setFontSize(5);
+      doc.text('OFFICIELLE', rx + bw / 2, photoY + photoH / 2 + 2.5, {
+        align: 'center'
+      });
+    }
+
+    // Collaborator Name, Role & RACI Pill
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.4);
+    doc.setTextColor(12, 74, 110);
+    const bNameLines = doc.splitTextToSize(
+      cleanText((profile.fullName || 'MEMBRE INTERNE').toUpperCase()),
+      bw - 4
+    );
+    doc.text(bNameLines[0] || '', rx + bw / 2, by + 58.8, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(5.8);
+    doc.setTextColor(2, 132, 199);
+    const bRoleLines = doc.splitTextToSize(
+      cleanText(profile.officialRole || 'Responsable Opérationnel'),
+      bw - 4
+    );
+    doc.text(bRoleLines.slice(0, 2), rx + bw / 2, by + 62.5, {
+      align: 'center'
+    });
+
+    // RACI & Matricule Pill
     doc.setFillColor(12, 74, 110);
-    doc.roundedRect(rectoX + (badgeW - 14) / 2, badgeY + 7.5, 14, 7, 1, 1, 'F');
+    doc.roundedRect(rx + 4, by + 67.5, bw - 8, 4.5, 2, 2, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(5.2);
+    doc.setTextColor(144, 213, 255);
+    doc.text(
+      cleanText(
+        `RÔLE RACI : ${profile.raciRoleBadge || 'R'} • ${profile.employeeId || 'MAT-001'}`
+      ),
+      rx + bw / 2,
+      by + 70.6,
+      { align: 'center' }
+    );
+
+    // Bottom Separator + Vector Barcode + Validity
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.25);
+    doc.line(rx + 3, by + 73.5, rx + bw - 3, by + 73.5);
+
+    // Code-Barres 1D Standard CODE-128 encodant le Matricule Unique du Badge
+    const code128Widths = encodeCode128Bars(
+      profile.employeeId || 'MAT-PILOTE-001'
+    );
+    const totalCode128Units = code128Widths.reduce((acc, v) => acc + v, 0);
+    const barcodeW = 42;
+    const unitMm = barcodeW / Math.max(1, totalCode128Units);
+    let curBarX = rx + (bw - barcodeW) / 2;
+    doc.setFillColor(15, 23, 42);
+    code128Widths.forEach((w, idx) => {
+      const segW = w * unitMm;
+      if (idx % 2 === 0) {
+        doc.rect(curBarX, by + 74.6, segW, 5.6, 'F');
+      }
+      curBarX += segW;
+    });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(4.7);
+    doc.setTextColor(100, 116, 139);
+    doc.text('ZONE A • ACCÈS TOTAL', rx + 3.5, by + 83.2);
+    doc.text(
+      cleanText(`VAL : ${profile.badgeValidityDate || '31/12/2026'}`),
+      rx + bw - 3.5,
+      by + 83.2,
+      { align: 'right' }
+    );
+  };
+
+  const badgeQrMatrix = encodeQrMatrix(buildBadgeQrPayload(profile, dossier));
+
+  const drawBadgeVerso = (
+    vx: number,
+    by: number,
+    bw: number,
+    bh: number,
+    isFullBleedPvc = false
+  ) => {
+    doc.setFillColor(15, 23, 42);
+    doc.setDrawColor(51, 65, 85);
+    doc.setLineWidth(0.45);
+    if (isFullBleedPvc) {
+      doc.rect(vx, by, bw, bh, 'F');
+    } else {
+      doc.roundedRect(vx, by, bw, bh, 3, 3, 'FD');
+    }
+
+    // Lanyard Slot on Verso
+    doc.setFillColor(30, 41, 59);
+    doc.setDrawColor(71, 85, 105);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(vx + (bw - 13) / 2, by + 3, 13, 2.6, 1.2, 1.2, 'FD');
+
+    // Simulated Magnetic Stripe
+    doc.setFillColor(0, 0, 0);
+    doc.rect(vx, by + 8, bw, 8.5, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(4.6);
+    doc.setTextColor(148, 163, 184);
+    doc.text(
+      'MAGNETIC STRIPE • SECURE ACCESS SYSTEM',
+      vx + bw / 2,
+      by + 13.2,
+      { align: 'center' }
+    );
+
+    // Security & Property Instructions
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(5.5);
     doc.setTextColor(144, 213, 255);
-    doc.text('PILOTE', rectoX + badgeW / 2, badgeY + 12, { align: 'center' });
-  }
+    doc.text('CONSIGNES DE SÉCURITÉ & PROPRIÉTÉ :', vx + 3.5, by + 22);
 
-  // Executing Org Name & Badge Subtitle
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.2);
-  doc.setTextColor(12, 74, 110);
-  const orgBadgeLines = doc.splitTextToSize(
-    cleanText((profile.executingOrgName || 'ORGANISME PILOTE').toUpperCase()),
-    badgeW - 5
-  );
-  doc.text(orgBadgeLines[0] || '', rectoX + badgeW / 2, badgeY + 19, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.1);
+    doc.setTextColor(226, 232, 240);
+    const secText1 = doc.splitTextToSize(
+      cleanText(
+        `Ce badge est la propriété exclusive de « ${profile.executingOrgName} ». Il est strictement personnel et doit être porté de manière visible dans les emprises du programme.`
+      ),
+      bw - 7
+    );
+    doc.text(secText1, vx + 3.5, by + 26);
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(4.7);
-  doc.setTextColor(100, 116, 139);
-  doc.text(
-    "CARTE D'IDENTIFICATION & D'ACCES",
-    rectoX + badgeW / 2,
-    badgeY + 22.2,
-    { align: 'center' }
-  );
+    const secText2 = doc.splitTextToSize(
+      cleanText(
+        `En cas de perte ou de découverte, prière de le rapporter au poste de sécurité ou de contacter le : ${
+          profile.badgeEmergencyPhone || profile.phonePro || '+225 27 20 00 12 34'
+        }.`
+      ),
+      bw - 7
+    );
+    doc.text(secText2, vx + 3.5, by + 41.5);
 
-  // Collaborator Photo Frame (24 mm x 30 mm)
-  const photoW = 24;
-  const photoH = 30;
-  const photoX = rectoX + (badgeW - photoW) / 2;
-  const photoY = badgeY + 24.5;
-  doc.setFillColor(240, 249, 255);
-  doc.setDrawColor(12, 74, 110);
-  doc.setLineWidth(0.5);
-  doc.roundedRect(photoX, photoY, photoW, photoH, 1.5, 1.5, 'FD');
+    // Medical & QR Security Box
+    const medBoxY = by + 58;
+    doc.setFillColor(30, 41, 59);
+    doc.setDrawColor(71, 85, 105);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(vx + 3, medBoxY, bw - 6, 18, 1.5, 1.5, 'FD');
 
-  const hasMemberPhoto = safeDrawImage(
-    profile.photoDataUrl,
-    photoX + 0.6,
-    photoY + 0.6,
-    photoW - 1.2,
-    photoH - 1.2,
-    true
-  );
-  if (!hasMemberPhoto) {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.5);
-    doc.setTextColor(2, 132, 199);
-    doc.text('PHOTO', rectoX + badgeW / 2, photoY + photoH / 2 - 1, { align: 'center' });
-    doc.setFontSize(5);
-    doc.text('OFFICIELLE', rectoX + badgeW / 2, photoY + photoH / 2 + 2.5, {
-      align: 'center'
-    });
-  }
+    doc.setFontSize(4.6);
+    doc.setTextColor(148, 163, 184);
+    doc.text('GROUPE SANGUIN :', vx + 5, medBoxY + 4.5);
+    doc.setFontSize(8.5);
+    doc.setTextColor(251, 113, 133);
+    doc.text(cleanText(profile.badgeBloodType || 'O+'), vx + 5, medBoxY + 9.5);
 
-  // Collaborator Name, Role & RACI Pill
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.4);
-  doc.setTextColor(12, 74, 110);
-  const bNameLines = doc.splitTextToSize(
-    cleanText((profile.fullName || 'MEMBRE INTERNE').toUpperCase()),
-    badgeW - 4
-  );
-  doc.text(bNameLines[0] || '', rectoX + badgeW / 2, badgeY + 58.8, { align: 'center' });
+    doc.setFontSize(4.6);
+    doc.setTextColor(148, 163, 184);
+    doc.text('PROGRAMME :', vx + 5, medBoxY + 13);
+    doc.setFontSize(5.2);
+    doc.setTextColor(186, 230, 253);
+    const progLines = doc.splitTextToSize(cleanText(dossier.name), 28);
+    doc.text(progLines[0] || '', vx + 5, medBoxY + 16);
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(5.8);
-  doc.setTextColor(2, 132, 199);
-  const bRoleLines = doc.splitTextToSize(
-    cleanText(profile.officialRole || 'Responsable Opérationnel'),
-    badgeW - 4
-  );
-  doc.text(bRoleLines.slice(0, 2), rectoX + badgeW / 2, badgeY + 62.5, {
-    align: 'center'
-  });
-
-  // RACI & Matricule Pill
-  doc.setFillColor(12, 74, 110);
-  doc.roundedRect(rectoX + 4, badgeY + 67.5, badgeW - 8, 4.5, 2, 2, 'F');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(5.2);
-  doc.setTextColor(144, 213, 255);
-  doc.text(
-    cleanText(
-      `RÔLE RACI : ${profile.raciRoleBadge || 'R'} • ${profile.employeeId || 'MAT-001'}`
-    ),
-    rectoX + badgeW / 2,
-    badgeY + 70.6,
-    { align: 'center' }
-  );
-
-  // Bottom Separator + Vector Barcode + Validity
-  doc.setDrawColor(226, 232, 240);
-  doc.setLineWidth(0.25);
-  doc.line(rectoX + 3, badgeY + 73.5, rectoX + badgeW - 3, badgeY + 73.5);
-
-  // Code-Barres 1D Standard CODE-128 encodant le Matricule Unique du Badge
-  const code128Widths = encodeCode128Bars(
-    profile.employeeId || 'MAT-PILOTE-001'
-  );
-  const totalCode128Units = code128Widths.reduce((acc, v) => acc + v, 0);
-  const barcodeW = 42;
-  const unitMm = barcodeW / Math.max(1, totalCode128Units);
-  let curBarX = rectoX + (badgeW - barcodeW) / 2;
-  doc.setFillColor(15, 23, 42);
-  code128Widths.forEach((w, idx) => {
-    const segW = w * unitMm;
-    if (idx % 2 === 0) {
-      doc.rect(curBarX, badgeY + 74.6, segW, 5.6, 'F');
-    }
-    curBarX += segW;
-  });
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(4.7);
-  doc.setTextColor(100, 116, 139);
-  doc.text('ZONE A • ACCÈS TOTAL', rectoX + 3.5, badgeY + 83.2);
-  doc.text(
-    cleanText(`VAL : ${profile.badgeValidityDate || '31/12/2026'}`),
-    rectoX + badgeW - 3.5,
-    badgeY + 83.2,
-    { align: 'right' }
-  );
-
-  // =========================================================================
-  // 2. VERSO DU BADGE VERTICAL (54 x 86 mm)
-  // =========================================================================
-  drawCropMarks(versoX, badgeY, badgeW, badgeH);
-  doc.setFillColor(15, 23, 42);
-  doc.setDrawColor(51, 65, 85);
-  doc.setLineWidth(0.45);
-  doc.roundedRect(versoX, badgeY, badgeW, badgeH, 3, 3, 'FD');
-
-  // Lanyard Slot on Verso
-  doc.setFillColor(30, 41, 59);
-  doc.setDrawColor(71, 85, 105);
-  doc.setLineWidth(0.25);
-  doc.roundedRect(versoX + (badgeW - 13) / 2, badgeY + 3, 13, 2.6, 1.2, 1.2, 'FD');
-
-  // Simulated Magnetic Stripe
-  doc.setFillColor(0, 0, 0);
-  doc.rect(versoX, badgeY + 8, badgeW, 8.5, 'F');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(4.6);
-  doc.setTextColor(148, 163, 184);
-  doc.text(
-    'MAGNETIC STRIPE • SECURE ACCESS SYSTEM',
-    versoX + badgeW / 2,
-    badgeY + 13.2,
-    { align: 'center' }
-  );
-
-  // Security & Property Instructions
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(5.5);
-  doc.setTextColor(144, 213, 255);
-  doc.text('CONSIGNES DE SÉCURITÉ & PROPRIÉTÉ :', versoX + 3.5, badgeY + 22);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(5.1);
-  doc.setTextColor(226, 232, 240);
-  const secText1 = doc.splitTextToSize(
-    cleanText(
-      `Ce badge est la propriété exclusive de « ${profile.executingOrgName} ». Il est strictement personnel et doit être porté de manière visible dans les emprises du programme.`
-    ),
-    badgeW - 7
-  );
-  doc.text(secText1, versoX + 3.5, badgeY + 26);
-
-  const secText2 = doc.splitTextToSize(
-    cleanText(
-      `En cas de perte ou de découverte, prière de le rapporter au poste de sécurité ou de contacter le : ${
-        profile.badgeEmergencyPhone || profile.phonePro || '+225 27 20 00 12 34'
-      }.`
-    ),
-    badgeW - 7
-  );
-  doc.text(secText2, versoX + 3.5, badgeY + 41.5);
-
-  // Medical & QR Security Box
-  const medBoxY = badgeY + 58;
-  doc.setFillColor(30, 41, 59);
-  doc.setDrawColor(71, 85, 105);
-  doc.setLineWidth(0.25);
-  doc.roundedRect(versoX + 3, medBoxY, badgeW - 6, 18, 1.5, 1.5, 'FD');
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(4.6);
-  doc.setTextColor(148, 163, 184);
-  doc.text('GROUPE SANGUIN :', versoX + 5, medBoxY + 4.5);
-  doc.setFontSize(8.5);
-  doc.setTextColor(251, 113, 133);
-  doc.text(cleanText(profile.badgeBloodType || 'O+'), versoX + 5, medBoxY + 9.5);
-
-  doc.setFontSize(4.6);
-  doc.setTextColor(148, 163, 184);
-  doc.text('PROGRAMME :', versoX + 5, medBoxY + 13);
-  doc.setFontSize(5.2);
-  doc.setTextColor(186, 230, 253);
-  const progLines = doc.splitTextToSize(cleanText(dossier.name), 28);
-  doc.text(progLines[0] || '', versoX + 5, medBoxY + 16);
-
-  // Real QR Code plate on right of medBox encoding all badge holder data
-  const qx = versoX + badgeW - 18.5;
-  const qy = medBoxY + 2.5;
-  const qSize = 13.5;
-  doc.setFillColor(255, 255, 255);
-  doc.roundedRect(qx, qy, qSize, qSize, 0.8, 0.8, 'F');
-  doc.setFillColor(15, 23, 42);
-  const badgeQrMatrix = encodeQrMatrix(buildBadgeQrPayload(profile, dossier));
-  const bN = badgeQrMatrix.length;
-  const bQuiet = 1.2;
-  const bUnit = qSize / (bN + bQuiet * 2);
-  for (let r = 0; r < bN; r++) {
-    for (let c = 0; c < bN; c++) {
-      if (badgeQrMatrix[r][c]) {
-        doc.rect(
-          qx + (c + bQuiet) * bUnit,
-          qy + (r + bQuiet) * bUnit,
-          bUnit + 0.03,
-          bUnit + 0.03,
-          'F'
-        );
+    // Real QR Code plate on right of medBox encoding all badge holder data
+    const qx = vx + bw - 20;
+    const qy = medBoxY + 1.25;
+    const qSize = 15.5;
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(qx, qy, qSize, qSize, 0.8, 0.8, 'F');
+    doc.setFillColor(15, 23, 42);
+    const bN = badgeQrMatrix.length;
+    const bQuiet = 3.2;
+    const bUnit = qSize / (bN + bQuiet * 2);
+    for (let r = 0; r < bN; r++) {
+      for (let c = 0; c < bN; c++) {
+        if (badgeQrMatrix[r][c]) {
+          doc.rect(
+            qx + (c + bQuiet) * bUnit,
+            qy + (r + bQuiet) * bUnit,
+            bUnit + 0.03,
+            bUnit + 0.03,
+            'F'
+          );
+        }
       }
     }
-  }
 
+    // Verso Footer
+    doc.setDrawColor(51, 65, 85);
+    doc.line(vx + 3.5, by + 79.5, vx + bw - 3.5, by + 79.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(4.7);
+    doc.setTextColor(148, 163, 184);
+    doc.text(
+      'Direction de la Sécurité & des Ressources Humaines',
+      vx + bw / 2,
+      by + 83.2,
+      { align: 'center' }
+    );
+  };
 
-  // Verso Footer
-  doc.setDrawColor(51, 65, 85);
-  doc.line(versoX + 3.5, badgeY + 79.5, versoX + badgeW - 3.5, badgeY + 79.5);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(4.7);
-  doc.setTextColor(148, 163, 184);
-  doc.text(
-    'Direction de la Sécurité & des Ressources Humaines',
-    versoX + badgeW / 2,
-    badgeY + 83.2,
-    { align: 'center' }
-  );
+  drawCropMarks(rectoX, badgeY, badgeW, badgeH);
+  drawBadgeRecto(rectoX, badgeY, badgeW, badgeH, false);
+
+  drawCropMarks(versoX, badgeY, badgeW, badgeH);
+  drawBadgeVerso(versoX, badgeY, badgeW, badgeH, false);
 
   // =========================================================================
   // 3. FICHE D'ATTRIBUTION & D'ACCRÉDITATION DU BADGE (BAS DE FEUILLE A4)
@@ -3832,12 +4045,19 @@ export async function generateProfessionalBadgePDF(
   doc.setTextColor(100, 116, 139);
   doc.text(
     cleanText(
-      `FAAB PLAN · Planche Badge Professionnel CR80 (54×86mm) avec repères de coupe · ${profile.fullName}`
+      `FAAB PLAN · Planche Badge Professionnel CR80 (54×86mm Papier A4 & Cartes PVC) · ${profile.fullName}`
     ),
     16,
     pageHeight - 7
   );
-  doc.text('Page 1 / 1', pageWidth - 16, pageHeight - 7, { align: 'right' });
+  doc.text('Page 1 / 3 (Planche Papier A4)', pageWidth - 16, pageHeight - 7, { align: 'right' });
+
+  // Pages 2 & 3 : Format Natif CR80 ISO/IEC 7810 (54 x 86 mm — Plein Bord pour Imprimantes Badges PVC)
+  doc.addPage([54, 86], 'portrait');
+  drawBadgeRecto(0, 0, 54, 86, true);
+
+  doc.addPage([54, 86], 'portrait');
+  drawBadgeVerso(0, 0, 54, 86, true);
 
   try {
     doc.autoPrint();
@@ -3851,14 +4071,28 @@ export async function generateProfessionalBadgePDF(
   const pdfFileName = `FAAB_PLAN_BADGE_PRO_54x86MM_${safeSlug}.pdf`;
   try {
     const pdfBlob = doc.output('blob');
-    await saveProgramFile({
+    const saved = await saveProgramFile({
       programName: dossier.name,
       fileName: pdfFileName,
       content: pdfBlob,
       mimeType: 'application/pdf'
     });
+    if (saved.method === 'dev-server' || saved.method === 'fs-api') {
+      try {
+        doc.save(pdfFileName);
+      } catch {
+        // ignore
+      }
+    }
+    return saved;
   } catch {
     doc.save(pdfFileName);
+    return {
+      success: true,
+      mode: 'download',
+      path: `faab-plan/${dossier.name}/${pdfFileName}`,
+      fileName: pdfFileName
+    };
   }
 }
 

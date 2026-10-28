@@ -1,4 +1,12 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  Suspense,
+  lazy,
+  startTransition
+} from 'react';
 import {
   Menu,
   X,
@@ -20,6 +28,7 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCcw,
+  RefreshCw,
   Printer,
   Filter,
   Target,
@@ -38,7 +47,8 @@ import {
   Save,
   Users,
   Globe,
-  QrCode
+  QrCode,
+  ShieldCheck
 } from 'lucide-react';
 import {
   CurrencyCode,
@@ -60,6 +70,7 @@ import {
   initialDossiers,
   loadAppStateFromIDB,
   saveAppStateToIDB,
+  setActiveUserStorageUid,
   ensureDossierCategorizedActors,
   renameActorInDossierTasks
 } from './db';
@@ -68,6 +79,7 @@ import { generateDirectWhitePDF } from './pdfExport';
 import {
   saveProgramFile,
   initExportStorage,
+  setActiveExportUserUid,
   pickFaabPlanFolder,
   downloadProgramFolderZip
 } from './services/exportStorage';
@@ -80,26 +92,77 @@ import {
 } from './pertUtils';
 import { AppLogo } from './components/AppLogo';
 import { LandingPage } from './components/LandingPage';
-import { GanttAndTreeView } from './components/GanttAndTreeView';
-import { FicheTechniquePages } from './components/FicheTechniquePages';
-import { DocumentGeneratorView } from './components/DocumentGeneratorView';
-import { OperationalMatrices } from './components/OperationalMatrices';
 import {
   UserProfileView,
   DossiersAndProjectsView
 } from './components/UserProfileAndDossiersView';
-import { CategoriesActorsView } from './components/CategoriesActorsView';
-import { QrBarcodeScannerModal } from './components/QrBarcodeScannerModal';
-import { InternalActorProfileModal } from './components/InternalActorProfileModal';
 import { resolveProgramRaciContext } from './docMatrices';
+import {
+  safeJsonParse,
+  sanitizeCsvCellForExport,
+  sanitizeCsvValueOnImport
+} from './securityUtils';
+
+// Chargement asynchrone code-splitté (Next.js / React 19 Suspense + Préchargement Idle) pour une fluidité maximale
+const GanttAndTreeView = lazy(() =>
+  import('./components/GanttAndTreeView').then(m => ({
+    default: m.GanttAndTreeView
+  }))
+);
+const FicheTechniquePages = lazy(() =>
+  import('./components/FicheTechniquePages').then(m => ({
+    default: m.FicheTechniquePages
+  }))
+);
+const DocumentGeneratorView = lazy(() =>
+  import('./components/DocumentGeneratorView').then(m => ({
+    default: m.DocumentGeneratorView
+  }))
+);
+const OperationalMatrices = lazy(() =>
+  import('./components/OperationalMatrices').then(m => ({
+    default: m.OperationalMatrices
+  }))
+);
+const CategoriesActorsView = lazy(() =>
+  import('./components/CategoriesActorsView').then(m => ({
+    default: m.CategoriesActorsView
+  }))
+);
+const QrBarcodeScannerModal = lazy(() =>
+  import('./components/QrBarcodeScannerModal').then(m => ({
+    default: m.QrBarcodeScannerModal
+  }))
+);
+const InternalActorProfileModal = lazy(() =>
+  import('./components/InternalActorProfileModal').then(m => ({
+    default: m.InternalActorProfileModal
+  }))
+);
+const SuperAdminDashboardView = lazy(() =>
+  import('./components/SuperAdminDashboardView').then(m => ({
+    default: m.SuperAdminDashboardView
+  }))
+);
 import {
   auth,
   googleProvider,
   signInWithPopup,
   signOut,
   onAuthStateChanged,
-  FirebaseUser
+  FirebaseUser,
+  isSuperAdminEmail,
+  mapFirebaseSdkUser
 } from './firebase';
+import {
+  syncFirebaseUserToRegistry,
+  isSessionPinVerifiedForUser,
+  setSessionPinVerifiedForUser
+} from './services/superAdminService';
+import {
+  SuperAdminAuthModal,
+  AuthModalStep
+} from './components/SuperAdminAuthModal';
 import { AuthStatusButton } from './components/AuthStatusButton';
 import { FirebaseAuthHelpModal } from './components/FirebaseAuthHelpModal';
 
@@ -120,13 +183,19 @@ export function App() {
   const [customDocsData, setCustomDocsData] =
     useState<CustomDocsMap>(defaultCustomDocsData);
 
-  // Firebase Authentication States
+  // Firebase Authentication, PIN Verification & Exclusive Role States
   const [authUser, setAuthUser] = useState<FirebaseUser | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
   const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
   const [isAuthHelpModalOpen, setIsAuthHelpModalOpen] = useState<boolean>(false);
   const [authErrorCode, setAuthErrorCode] = useState<string>('auth/unauthorized-domain');
   const [authErrorMessage, setAuthErrorMessage] = useState<string>('');
+  const [isPinVerified, setIsPinVerified] = useState<boolean>(false);
+  const [isSuperAdminAuthModalOpen, setIsSuperAdminAuthModalOpen] =
+    useState<boolean>(false);
+  const [superAdminAuthModalStep, setSuperAdminAuthModalStep] =
+    useState<AuthModalStep>('pin_and_biometric');
+  const [isDeviceLocked, setIsDeviceLocked] = useState<boolean>(false);
 
   // Slidebar & UI states
   const [isSlidebarOpen, setIsSlidebarOpen] = useState(false);
@@ -238,54 +307,132 @@ export function App() {
     return () => cancelAnimationFrame(rafId);
   }, [activeHomeSection, activeTab, language]);
 
-  // Hydrate from IndexedDB on mount
+  // Hydrate isolated workspace from IndexedDB strictly for the authenticated Regular User (UID)
+  // Neither other users nor the Super Administrator can access another user's programmes or profile.
+  const [hydratedUid, setHydratedUid] = useState<string | null>(null);
+
   useEffect(() => {
-    loadAppStateFromIDB().then(saved => {
+    setIsHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    // If not authenticated or if Super Administrator, clear active storage UID and reset in-memory workspace
+    if (!authUser || isSuperAdminEmail(authUser.email)) {
+      setActiveUserStorageUid(null);
+      setActiveExportUserUid(null);
+      setHydratedUid(null);
+      setUserProfile({ ...defaultUserProfile });
+      setDossiers(JSON.parse(JSON.stringify(initialDossiers)));
+      setActiveDossierId(initialDossiers[0].id);
+      setCustomDocsData({ ...defaultCustomDocsData });
+      return;
+    }
+
+    const currentUid = authUser.uid;
+    setActiveUserStorageUid(currentUid);
+    setActiveExportUserUid(currentUid);
+    void initExportStorage();
+
+    let cancelled = false;
+    loadAppStateFromIDB(currentUid).then(saved => {
+      if (cancelled) return;
       if (saved) {
-        if (saved.userProfile) setUserProfile(saved.userProfile);
+        if (saved.userProfile) {
+          setUserProfile(saved.userProfile);
+        } else {
+          setUserProfile({
+            ...defaultUserProfile,
+            fullName:
+              authUser.displayName ||
+              authUser.email?.split('@')[0] ||
+              'Utilisateur F-PLLAN',
+            email: authUser.email || ''
+          });
+        }
         if (Array.isArray(saved.dossiers) && saved.dossiers.length > 0) {
           setDossiers(saved.dossiers);
+        } else {
+          setDossiers(JSON.parse(JSON.stringify(initialDossiers)));
         }
-        if (saved.activeDossierId) setActiveDossierId(saved.activeDossierId);
+        if (saved.activeDossierId) {
+          setActiveDossierId(saved.activeDossierId);
+        } else {
+          setActiveDossierId(initialDossiers[0].id);
+        }
         if (saved.language) setLanguage(saved.language);
         if (saved.currency) setCurrency(saved.currency);
         if (saved.theme) setTheme(saved.theme);
         if (saved.lastJsonFileName) setLastJsonFileName(saved.lastJsonFileName);
-        if (saved.activeTab) setActiveTab(saved.activeTab);
         if (saved.customDocsData) {
           setCustomDocsData({
             ...defaultCustomDocsData,
             ...saved.customDocsData
           });
+        } else {
+          setCustomDocsData({ ...defaultCustomDocsData });
         }
+      } else {
+        // First login for this specific Regular User UID -> fresh isolated workspace
+        const freshDossiers: Dossier[] = JSON.parse(
+          JSON.stringify(initialDossiers)
+        );
+        const freshProfile: UserProfile = {
+          ...defaultUserProfile,
+          fullName:
+            authUser.displayName ||
+            authUser.email?.split('@')[0] ||
+            'Utilisateur F-PLLAN',
+          email: authUser.email || ''
+        };
+        setUserProfile(freshProfile);
+        setDossiers(freshDossiers);
+        setActiveDossierId(freshDossiers[0].id);
+        setCustomDocsData({ ...defaultCustomDocsData });
       }
-      setIsHydrated(true);
+      setHydratedUid(currentUid);
     });
-    initExportStorage();
-  }, []);
 
-  // Auto-persist to IndexedDB & sync dark mode
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser?.uid, authUser?.email]);
+
+  // Auto-persist to IndexedDB (strictly scoped to the authenticated Regular User UID) & sync dark mode
   useEffect(() => {
-    if (!isHydrated) return;
-    saveAppStateToIDB({
-      userProfile,
-      dossiers,
-      activeDossierId,
-      language,
-      currency,
-      theme,
-      lastJsonFileName,
-      activeTab,
-      customDocsData
-    });
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
     document.documentElement.lang = language === 'EN' ? 'en' : 'fr';
+
+    if (
+      !isHydrated ||
+      !authUser ||
+      isSuperAdminEmail(authUser.email) ||
+      hydratedUid !== authUser.uid
+    ) {
+      return;
+    }
+
+    void saveAppStateToIDB(
+      {
+        userProfile,
+        dossiers,
+        activeDossierId,
+        language,
+        currency,
+        theme,
+        lastJsonFileName,
+        activeTab,
+        customDocsData
+      },
+      authUser.uid
+    );
   }, [
     isHydrated,
+    hydratedUid,
+    authUser,
     userProfile,
     dossiers,
     activeDossierId,
@@ -306,25 +453,42 @@ export function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, user => {
       if (user) {
-        setAuthUser({
-          uid: user.uid,
-          email: user.email,
-          displayName: user.displayName,
-          photoURL: user.photoURL
-        });
+        const mapped = mapFirebaseSdkUser(user);
+        setAuthUser(mapped);
+        void syncFirebaseUserToRegistry(mapped);
+
+        const alreadyPinVerified = isSessionPinVerifiedForUser(mapped.uid);
+        setIsPinVerified(alreadyPinVerified);
+
+        if (alreadyPinVerified) {
+          // Dissociation stricte : le Super Admin n'a accès qu'à 'super_admin' (ou 'accueil'), l'utilisateur qu'aux onglets utilisateurs
+          if (isSuperAdminEmail(mapped.email)) {
+            setActiveTab(prev => (prev === 'accueil' ? 'accueil' : 'super_admin'));
+          } else {
+            setActiveTab(prev => (prev === 'super_admin' ? 'projects' : prev));
+          }
+        } else {
+          // Demander systématiquement le Code PIN (défaut "0000") ou Touch ID / Face ID après l'authentification Google
+          setSuperAdminAuthModalStep('pin_and_biometric');
+          setIsSuperAdminAuthModalOpen(true);
+        }
+
         try {
           localStorage.setItem(
             'faab_auth_session',
             JSON.stringify({
               uid: user.uid,
-              email: user.email,
-              displayName: user.displayName,
-              photoURL: user.photoURL
+              authenticatedAt: Date.now()
             })
           );
         } catch {}
       } else {
         setAuthUser(null);
+        setIsPinVerified(false);
+        setSessionPinVerifiedForUser(null, false);
+        setIsDeviceLocked(false);
+        setIsSuperAdminAuthModalOpen(false);
+        setActiveTab('accueil');
         try {
           localStorage.removeItem('faab_auth_session');
         } catch {}
@@ -334,63 +498,71 @@ export function App() {
     return () => unsubscribe();
   }, []);
 
+  // Préchargement asynchrone en tâche de fond (Idle Prefetching) des modules selon le rôle exclusif
+  useEffect(() => {
+    if (!isHydrated || !authUser) return;
+    const preloadModules = () => {
+      if (isSuperAdminEmail(authUser.email)) {
+        void import('./components/SuperAdminDashboardView');
+      } else {
+        void import('./components/OperationalMatrices');
+        void import('./components/GanttAndTreeView');
+        void import('./components/CategoriesActorsView');
+        void import('./components/FicheTechniquePages');
+        void import('./components/DocumentGeneratorView');
+      }
+    };
+    if (typeof (window as any).requestIdleCallback === 'function') {
+      const id = (window as any).requestIdleCallback(preloadModules, {
+        timeout: 2000
+      });
+      return () => (window as any).cancelIdleCallback?.(id);
+    } else {
+      const timer = setTimeout(preloadModules, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [isHydrated, authUser]);
+
+  // Lorsqu'on clique sur "Se connecter", Google Sign-In authentifie EN PREMIER, puis ouvre immédiatement le popup Code PIN (défaut "0000") / Touch ID / Face ID
   const handleGoogleSignIn = async () => {
+    // Si déjà authentifié par Google mais en attente de validation du Code PIN, ré-afficher le popup PIN
+    if (authUser && !isPinVerified) {
+      setSuperAdminAuthModalStep('pin_and_biometric');
+      setIsSuperAdminAuthModalOpen(true);
+      return;
+    }
+
     try {
       setIsSigningIn(true);
-      // Strictly call the real Firebase Google Sign-In Popup
+      googleProvider.setCustomParameters({ prompt: 'select_account' });
       const res = await signInWithPopup(auth, googleProvider);
       if (res.user) {
-        setAuthUser({
-          uid: res.user.uid,
-          email: res.user.email,
-          displayName: res.user.displayName,
-          photoURL: res.user.photoURL
-        });
-        try {
-          localStorage.setItem(
-            'faab_auth_session',
-            JSON.stringify({
-              uid: res.user.uid,
-              email: res.user.email,
-              displayName: res.user.displayName,
-              photoURL: res.user.photoURL
-            })
-          );
-        } catch {}
-        showToast(
-          language === 'EN'
-            ? `Welcome ${res.user.displayName || res.user.email}!`
-            : `Bienvenue ${res.user.displayName || res.user.email} !`
-        );
-        setActiveTab(prev => (prev === 'accueil' ? 'projects' : prev));
+        const mapped = mapFirebaseSdkUser(res.user);
+        setAuthUser(mapped);
+        void syncFirebaseUserToRegistry(mapped);
+        // Exiger la saisie du Code PIN (par défaut "0000") ou Touch ID / Face ID à chaque nouvelle connexion Google
+        setIsPinVerified(false);
+        setSessionPinVerifiedForUser(mapped.uid, false);
+        setSuperAdminAuthModalStep('pin_and_biometric');
+        setIsSuperAdminAuthModalOpen(true);
       }
     } catch (err: any) {
       const code = err?.code || 'auth/unknown-error';
       const msg = err?.message || 'Erreur lors de la connexion Google Firebase.';
-
-      // Strictly DO NOT unlock the app. Keep authUser null.
-      // Display diagnostic modal with exact error code & current domain for 1-click copy into Firebase Console.
       setAuthErrorCode(code);
       setAuthErrorMessage(msg);
-
       if (
-        code === 'auth/unauthorized-domain' ||
-        code === 'auth/popup-blocked' ||
-        code.includes('unauthorized-domain') ||
-        code.includes('popup-blocked')
-      ) {
-        setIsAuthHelpModalOpen(true);
-      } else if (
         code !== 'auth/popup-closed-by-user' &&
         code !== 'auth/cancelled-popup-request'
       ) {
-        console.warn('Firebase Google Sign-In notice:', code, msg);
         setIsAuthHelpModalOpen(true);
       }
     } finally {
       setIsSigningIn(false);
     }
   };
+
+  const handleDirectGooglePopupRetry = handleGoogleSignIn;
 
   const handleSignOut = async () => {
     try {
@@ -402,12 +574,16 @@ export function App() {
         localStorage.removeItem('faab_auth_session');
       } catch {}
       setAuthUser(null);
+      setIsPinVerified(false);
+      setSessionPinVerifiedForUser(null, false);
+      setIsDeviceLocked(false);
+      setIsSuperAdminAuthModalOpen(false);
       setIsSlidebarOpen(false);
       setActiveTab('accueil');
       showToast(
         language === 'EN'
-          ? 'You have been logged out.'
-          : 'Vous avez été déconnecté.'
+          ? 'You have been logged out. Please sign in with Google to reconnect.'
+          : 'Vous avez été déconnecté. Authentifiez-vous via Google Sign-In pour vous reconnecter.'
       );
     }
   };
@@ -557,13 +733,82 @@ export function App() {
     );
   }
 
+  // Strict security flags:
+  // 1. User must be authenticated via Google Sign-In AND have verified their PIN (or Touch ID / Face ID) AND not have locked the device.
+  // 2. Super Admin ('fabien.frikupgeneration@gmail.com') and Standard Users (all other emails) are strictly dissociated:
+  //    - Super Admin ONLY has access to 'super_admin' (and 'accueil').
+  //    - Standard Users ONLY have access to classic user modules (and NEVER 'super_admin').
+  const isUnlocked = Boolean(authUser && isPinVerified && !isDeviceLocked);
+  const isSuperAdminUnlocked = Boolean(
+    isUnlocked && isSuperAdminEmail(authUser?.email)
+  );
+  const isRegularUserUnlocked = Boolean(
+    isUnlocked && !isSuperAdminEmail(authUser?.email)
+  );
+
   const navigateTo = (tab: string) => {
-    if (!authUser && tab !== 'accueil') {
+    if (tab === 'accueil') {
+      setIsSlidebarOpen(false);
+      startTransition(() => {
+        setActiveTab('accueil');
+      });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    // 1. If not signed in with Google yet -> authenticate via Google Sign-In first
+    if (!authUser) {
       handleGoogleSignIn();
       return;
     }
-    setActiveTab(tab);
+
+    // 2. If signed in with Google, but PIN is not verified or device is locked -> open PIN popup
+    if (!isPinVerified || isDeviceLocked) {
+      setIsSlidebarOpen(false);
+      setSuperAdminAuthModalStep(
+        isDeviceLocked ? 'device_locked' : 'pin_and_biometric'
+      );
+      setIsSuperAdminAuthModalOpen(true);
+      return;
+    }
+
+    // 3. Strict dissociation: Super Admin ('fabien.frikupgeneration@gmail.com') cannot access user tabs
+    if (isSuperAdminEmail(authUser.email)) {
+      if (tab !== 'super_admin') {
+        setIsSlidebarOpen(false);
+        startTransition(() => {
+          setActiveTab('super_admin');
+        });
+        showToast(
+          language === 'EN'
+            ? 'Super Administrator account is strictly dissociated from the User workspace.'
+            : 'Le compte Super Administrateur est strictement dissocié de l’espace Utilisateur.'
+        );
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+      setIsSlidebarOpen(false);
+      startTransition(() => {
+        setActiveTab('super_admin');
+      });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    // 4. Strict dissociation: Standard User cannot access 'super_admin'
+    if (tab === 'super_admin') {
+      showToast(
+        language === 'EN'
+          ? 'Access strictly reserved for the Super Administrator.'
+          : 'Accès strictement réservé au Super Administrateur (fabien.frikupgeneration@gmail.com).'
+      );
+      return;
+    }
+
     setIsSlidebarOpen(false);
+    startTransition(() => {
+      setActiveTab(tab);
+    });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -637,7 +882,7 @@ export function App() {
     const reader = new FileReader();
     reader.onload = evt => {
       try {
-        const parsed = JSON.parse(evt.target?.result as string);
+        const parsed = safeJsonParse(evt.target?.result as string);
         const importedDossiers: Dossier[] | null = Array.isArray(parsed?.dossiers)
           ? parsed.dossiers
           : parsed?.programmeSelectionne
@@ -691,13 +936,9 @@ export function App() {
     );
   };
 
-  // CSV Round-Trip Helpers (UTF-8 with BOM \uFEFF + semicolon separator for Excel)
+  // CSV Round-Trip Helpers (UTF-8 with BOM \uFEFF + semicolon separator for Excel + Anti-Formula Injection)
   const escapeCsvCell = (val: unknown): string => {
-    const str = String(val ?? '').replace(/\r?\n/g, ' ').trim();
-    if (str.includes(';') || str.includes('"') || str.includes(',')) {
-      return `"${str.replace(/"/g, '""')}"`;
-    }
-    return str;
+    return sanitizeCsvCellForExport(val);
   };
 
   const parseCsvText = (rawText: string): Array<Record<string, string>> => {
@@ -772,7 +1013,7 @@ export function App() {
       if (vals.every(v => !v)) continue;
       const rec: Record<string, string> = {};
       rawHeaders.forEach((h, idx) => {
-        if (h) rec[h] = vals[idx] ?? '';
+        if (h) rec[h] = sanitizeCsvValueOnImport(vals[idx] ?? '');
       });
       records.push(rec);
     }
@@ -1835,10 +2076,13 @@ export function App() {
   // SLIDEBAR MENU (Burger ☰) — Portefeuille / Dossier selector ONLY + Ordered Tabs
   // ============================================================================
   const renderSlidebar = () => {
-    // STRICT SECURITY: If not authenticated or drawer closed, NEVER mount slidebar in the DOM
-    if (!authUser || !isSlidebarOpen) return null;
+    // STRICT SECURITY & DISSOCIATION:
+    // - Never mount slidebar if not authenticated, if PIN is not verified, if device is locked, or if drawer closed.
+    // - Super Admin ('fabien.frikupgeneration@gmail.com') is strictly dissociated from the classic User workspace,
+    //   so the classic User Slidebar is ONLY available to authenticated & PIN-verified Regular Users.
+    if (!isRegularUserUnlocked || !isSlidebarOpen) return null;
 
-    // Reorganized into the exact 4 groups with spacing between groups:
+    // Reorganized into the exact 4 groups with spacing between groups (Strictly Regular User modules):
     // Group 1: Accueil & Présentation, Profil Utilisateur
     // Group 2: Dossiers & Projets, Fiche Technique & Résumé Exécutif, Générateur de Documents
     // Group 3: Tableau de Bord Décisionnel, Réseau PERT, Tableau Kanban Interactif, Diagramme de Gantt & Arbre
@@ -2193,6 +2437,12 @@ export function App() {
             onSignOut={handleSignOut}
             language={language}
             variant="slidebar"
+            onLockDevice={() => {
+              setIsSlidebarOpen(false);
+              setIsDeviceLocked(true);
+              setSuperAdminAuthModalStep('device_locked');
+              setIsSuperAdminAuthModalOpen(true);
+            }}
           />
 
           {/* SCROLLABLE CONTAINER: Logo + Description below the icons scrolls up with mobile swipe! */}
@@ -3348,17 +3598,19 @@ export function App() {
         </div>
       )}
 
-      {/* MOBILE ONLY ON OTHER TABS (activeTab !== 'accueil'): Burger Icon + App Icon right next to it (Same Size w-10 h-10, No Header) */}
-      {authUser && activeTab !== 'accueil' && (
+      {/* MOBILE ONLY ON OTHER TABS (activeTab !== 'accueil'): Burger Icon (Regular Users) + App Icon right next to it */}
+      {isUnlocked && activeTab !== 'accueil' && (
         <div className="md:hidden fixed top-2 left-2 z-40 flex items-center gap-1.5 no-print">
-          <button
-            onClick={() => setIsSlidebarOpen(true)}
-            aria-label="Ouvrir le menu déroulant"
-            title="Menu FAAB PLAN"
-            className="w-10 h-10 rounded-xl bg-[#0c4a6e] text-[#90D5FF] hover:bg-[#90D5FF] hover:text-slate-950 flex items-center justify-center transition-all border border-[#90D5FF]/70 shadow-md cursor-pointer shrink-0"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
+          {isRegularUserUnlocked && (
+            <button
+              onClick={() => setIsSlidebarOpen(true)}
+              aria-label="Ouvrir le menu déroulant"
+              title="Menu FAAB PLAN"
+              className="w-10 h-10 rounded-xl bg-[#0c4a6e] text-[#90D5FF] hover:bg-[#90D5FF] hover:text-slate-950 flex items-center justify-center transition-all border border-[#90D5FF]/70 shadow-md cursor-pointer shrink-0"
+            >
+              <Menu className="w-6 h-6" />
+            </button>
+          )}
 
           <button
             onClick={() => navigateTo('accueil')}
@@ -3374,12 +3626,12 @@ export function App() {
       {/* INSTITUTIONAL NAVBAR: Locked at top of screen on scroll (fixed top-0 left-0 right-0 z-40). Visible on ALL screens on Home Page (accueil), and on Tablet/Desktop (md:block) on other tabs (No header on Mobile on other tabs) */}
       <header
         className={`${
-          activeTab === 'accueil' ? 'block' : 'hidden md:block'
+          !isUnlocked || activeTab === 'accueil' ? 'block' : 'hidden md:block'
         } fixed top-0 left-0 right-0 z-40 bg-[#0c4a6e] text-white border-b-2 border-[#90D5FF] shadow-md no-print`}
       >
         <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 sm:py-2.5 flex items-center gap-2.5 sm:gap-4">
-          {/* Burger Menu Button (STRICT DOM REMOVAL: Only mounted when authUser is connected) */}
-          {authUser && (
+          {/* Burger Menu Button (STRICT DOM REMOVAL: Only mounted when Regular User is unlocked; Super Admin has a dedicated Console button) */}
+          {isRegularUserUnlocked && (
             <button
               onClick={() => setIsSlidebarOpen(true)}
               aria-label="Ouvrir le menu déroulant"
@@ -3387,6 +3639,17 @@ export function App() {
               className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-sky-950/80 text-[#90D5FF] hover:bg-[#90D5FF] hover:text-slate-950 flex items-center justify-center transition-all border border-[#90D5FF]/60 shadow-sm cursor-pointer shrink-0"
             >
               <Menu className="w-6 h-6" />
+            </button>
+          )}
+          {isSuperAdminUnlocked && activeTab === 'accueil' && (
+            <button
+              onClick={() => navigateTo('super_admin')}
+              aria-label="Ouvrir la Console Super Admin"
+              title="Ouvrir la Console Super Admin"
+              className="px-3 h-10 sm:h-11 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 flex items-center gap-1.5 transition-all border border-amber-300 shadow-sm cursor-pointer shrink-0 text-xs font-black uppercase tracking-wider"
+            >
+              <ShieldCheck className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">Console Admin</span>
             </button>
           )}
 
@@ -3407,8 +3670,59 @@ export function App() {
             </div>
           </div>
 
-          {/* Le bouton de Scanner QR / Badge ne doit PAS être affiché ni caché par du CSS sur la page d'accueil. Il apparaît UNIQUEMENT dans l'app (activeTab !== 'accueil') ET si connecté */}
-          {authUser && activeTab !== 'accueil' && (
+          {/* Bouton en icône "Mise à jour" sur la page d'accueil pour recharger et actualiser l'application F-PLLAN */}
+          {(!isUnlocked || activeTab === 'accueil') && (
+            <button
+              type="button"
+              onClick={async () => {
+                showToast(
+                  language === 'EN'
+                    ? 'Updating F-PLLAN application...'
+                    : 'Mise à jour et rechargement de F-PLLAN en cours...'
+                );
+                try {
+                  if ('serviceWorker' in navigator) {
+                    const regs = await navigator.serviceWorker.getRegistrations();
+                    await Promise.all(
+                      regs.map(async reg => {
+                        try {
+                          reg.active?.postMessage({ type: 'CLEAR_AND_UPDATE' });
+                          reg.waiting?.postMessage({ type: 'SKIP_WAITING' });
+                          await reg.update();
+                        } catch {
+                          // ignore
+                        }
+                      })
+                    );
+                  }
+                  if ('caches' in window) {
+                    const keys = await window.caches.keys();
+                    await Promise.all(keys.map(k => window.caches.delete(k)));
+                  }
+                } catch {
+                  // ignore
+                }
+                setTimeout(() => {
+                  window.location.reload();
+                }, 300);
+              }}
+              title={
+                language === 'EN'
+                  ? 'Update & Reload F-PLLAN Application'
+                  : 'Mise à jour : Recharger l’application pour la mettre à jour'
+              }
+              aria-label={language === 'EN' ? 'Update App' : 'Mise à jour'}
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 h-9 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-300 text-[10px] sm:text-xs font-black transition-all cursor-pointer shrink-0 shadow-sm"
+            >
+              <RefreshCw className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">
+                {language === 'EN' ? 'Update' : 'Mise à jour'}
+              </span>
+            </button>
+          )}
+
+          {/* Le bouton de Scanner QR / Badge apparaît UNIQUEMENT dans l'espace Utilisateur déverrouillé (jamais pour Super Admin ni sur l'accueil) */}
+          {isRegularUserUnlocked && activeTab !== 'accueil' && (
             <button
               type="button"
               onClick={() => setIsGlobalScannerOpen(true)}
@@ -3435,11 +3749,16 @@ export function App() {
             onSignOut={handleSignOut}
             language={language}
             variant="header"
+            onLockDevice={() => {
+              setIsDeviceLocked(true);
+              setSuperAdminAuthModalStep('device_locked');
+              setIsSuperAdminAuthModalOpen(true);
+            }}
           />
         </div>
 
         {/* BARRE DE NAVIGATION DES SECTIONS DE LA PAGE D'ACCUEIL (Uniquement sur la page d'accueil, en dessous du logo et de l'intitulé) */}
-        {activeTab === 'accueil' && (
+        {(!isUnlocked || activeTab === 'accueil') && (
           <nav
             aria-label="Sections explicatives de la page d'accueil"
             className="border-t border-sky-800/80 bg-[#082f49]/95 backdrop-blur-xs relative"
@@ -3554,7 +3873,7 @@ export function App() {
       <div
         aria-hidden="true"
         className={
-          !authUser || activeTab === 'accueil'
+          !isUnlocked || activeTab === 'accueil'
             ? 'h-[98px] sm:h-[106px] shrink-0 no-print'
             : 'hidden md:block md:h-[62px] shrink-0 no-print'
         }
@@ -3563,26 +3882,37 @@ export function App() {
       {/* MAIN CONTENT AREA */}
       <main
         className={`flex-1 max-w-7xl w-full mx-auto px-2 sm:px-6 ${
-          !authUser || activeTab === 'accueil' ? 'pt-3 md:pt-5' : 'pt-14 md:pt-5'
+          !isUnlocked || activeTab === 'accueil' ? 'pt-3 md:pt-5' : 'pt-14 md:pt-5'
         } pb-4`}
       >
-        {(!authUser || activeTab === 'accueil') && (
+        {(!isUnlocked || activeTab === 'accueil') && (
           <LandingPage
             isDark={theme === 'dark'}
             language={language}
             lastJsonFileName={lastJsonFileName}
             onOpenSlidebar={() => {
-              if (authUser) {
-                setIsSlidebarOpen(true);
-              } else {
+              if (!authUser) {
                 handleGoogleSignIn();
+                return;
+              }
+              if (!isPinVerified || isDeviceLocked) {
+                setSuperAdminAuthModalStep(
+                  isDeviceLocked ? 'device_locked' : 'pin_and_biometric'
+                );
+                setIsSuperAdminAuthModalOpen(true);
+                return;
+              }
+              if (isSuperAdminEmail(authUser.email)) {
+                navigateTo('super_admin');
+              } else {
+                setIsSlidebarOpen(true);
               }
             }}
             onNavigateTab={navigateTo}
           />
         )}
 
-        {authUser && activeTab === 'profil' && (
+        {isRegularUserUnlocked && activeTab === 'profil' && (
           <UserProfileView
             userProfile={userProfile}
             setUserProfile={setUserProfile}
@@ -3591,10 +3921,13 @@ export function App() {
             language={language}
             setLanguage={setLanguage}
             onNavigateTab={navigateTo}
+            currentUser={authUser}
+            onShowToast={showToast}
           />
         )}
 
-        {authUser && activeTab === 'projects' && (
+        {isRegularUserUnlocked &&
+          (activeTab === 'projects' || activeTab === 'super_admin') && (
           <DossiersAndProjectsView
             dossiers={dossiers}
             activeDossier={activeDossier}
@@ -3614,157 +3947,237 @@ export function App() {
           />
         )}
 
-        {authUser && activeTab === 'dashboard' && renderDashboardView()}
+        {isRegularUserUnlocked && activeTab === 'dashboard' && renderDashboardView()}
 
-        {authUser && activeTab === 'gantt' && (
-          <GanttAndTreeView
-            dossier={activeDossier}
-            currency={currency}
-            language={language}
-            filterAxeId={filterAxeId}
-            setFilterAxeId={setFilterAxeId}
-            filterProjectId={filterProjectId}
-            setFilterProjectId={setFilterProjectId}
-            onUpdateTask={handleUpdateTask}
-          />
-        )}
+        <Suspense
+          fallback={
+            <div className="py-12 flex flex-col items-center justify-center gap-3 text-slate-600 dark:text-slate-300 animate-pulse">
+              <div className="w-7 h-7 border-3 border-[#0c4a6e] dark:border-[#90D5FF] border-t-transparent rounded-full animate-spin" />
+              <span className="text-xs font-extrabold uppercase tracking-wider">
+                {language === 'EN'
+                  ? 'Loading F-PLLAN module...'
+                  : 'Chargement fluide du module F-PLLAN...'}
+              </span>
+            </div>
+          }
+        >
+          {isRegularUserUnlocked && activeTab === 'gantt' && (
+            <GanttAndTreeView
+              dossier={activeDossier}
+              currency={currency}
+              language={language}
+              filterAxeId={filterAxeId}
+              setFilterAxeId={setFilterAxeId}
+              filterProjectId={filterProjectId}
+              setFilterProjectId={setFilterProjectId}
+              onUpdateTask={handleUpdateTask}
+            />
+          )}
 
-        {authUser &&
-          (activeTab === 'planification' ||
-            activeTab === 'processus' ||
-            activeTab === 'raci') && (
-          <OperationalMatrices
-            mode={activeTab as 'planification' | 'processus' | 'raci'}
-            dossier={activeDossier}
-            currency={currency}
-            language={language}
-            filterAxeId={filterAxeId}
-            setFilterAxeId={setFilterAxeId}
-            filterProjectId={filterProjectId}
-            setFilterProjectId={setFilterProjectId}
-            onAddAxe={handleAddAxe}
-            onUpdateAxeName={handleUpdateAxeName}
-            onDeleteAxe={handleDeleteAxe}
-            onAddProject={handleAddProject}
-            onUpdateProjectName={handleUpdateProjectName}
-            onDeleteProject={handleDeleteProject}
-            onAddTaskInPhase={handleAddTaskInPhase}
-            onUpdateTask={handleUpdateTask}
-            onDeleteTask={handleDeleteTask}
-          />
-        )}
+          {isRegularUserUnlocked &&
+            (activeTab === 'planification' ||
+              activeTab === 'processus' ||
+              activeTab === 'raci') && (
+            <OperationalMatrices
+              mode={activeTab as 'planification' | 'processus' | 'raci'}
+              dossier={activeDossier}
+              currency={currency}
+              language={language}
+              filterAxeId={filterAxeId}
+              setFilterAxeId={setFilterAxeId}
+              filterProjectId={filterProjectId}
+              setFilterProjectId={setFilterProjectId}
+              onAddAxe={handleAddAxe}
+              onUpdateAxeName={handleUpdateAxeName}
+              onDeleteAxe={handleDeleteAxe}
+              onAddProject={handleAddProject}
+              onUpdateProjectName={handleUpdateProjectName}
+              onDeleteProject={handleDeleteProject}
+              onAddTaskInPhase={handleAddTaskInPhase}
+              onUpdateTask={handleUpdateTask}
+              onDeleteTask={handleDeleteTask}
+            />
+          )}
 
-        {authUser && activeTab === 'categorie' && (
-          <CategoriesActorsView
-            dossier={activeDossier}
-            dossiers={dossiers}
-            onSelectDossier={setActiveDossierId}
-            userProfile={userProfile}
-            onUpdateUserProfile={setUserProfile}
-            language={language}
-            filterAxeId={filterAxeId}
-            setFilterAxeId={setFilterAxeId}
-            filterProjectId={filterProjectId}
-            setFilterProjectId={setFilterProjectId}
-            onUpdateCategorizedActors={handleUpdateCategorizedActors}
-            onRenameActorInRaci={(oldName, newName) => {
-              updateActiveDossier(d =>
-                renameActorInDossierTasks(d, oldName, newName)
-              );
-            }}
-            onApplyProfileToDoc={(docType, fields) => {
-              Object.entries(fields).forEach(([k, v]) => {
-                if (v !== undefined) {
-                  handleUpdateDocField(
-                    docType,
-                    k as keyof CustomDocFields,
-                    String(v)
-                  );
-                }
-              });
-            }}
-            onNavigateToDocGen={() => {
-              navigateTo('docgen');
-            }}
-          />
-        )}
+          {isRegularUserUnlocked && activeTab === 'categorie' && (
+            <CategoriesActorsView
+              dossier={activeDossier}
+              dossiers={dossiers}
+              onSelectDossier={setActiveDossierId}
+              userProfile={userProfile}
+              onUpdateUserProfile={setUserProfile}
+              language={language}
+              filterAxeId={filterAxeId}
+              setFilterAxeId={setFilterAxeId}
+              filterProjectId={filterProjectId}
+              setFilterProjectId={setFilterProjectId}
+              onUpdateCategorizedActors={handleUpdateCategorizedActors}
+              onRenameActorInRaci={(oldName, newName) => {
+                updateActiveDossier(d =>
+                  renameActorInDossierTasks(d, oldName, newName)
+                );
+              }}
+              onApplyProfileToDoc={(docType, fields) => {
+                Object.entries(fields).forEach(([k, v]) => {
+                  if (v !== undefined) {
+                    handleUpdateDocField(
+                      docType,
+                      k as keyof CustomDocFields,
+                      String(v)
+                    );
+                  }
+                });
+              }}
+              onNavigateToDocGen={() => {
+                navigateTo('docgen');
+              }}
+            />
+          )}
 
-        {authUser && activeTab === 'pert' && renderPertView()}
+          {isRegularUserUnlocked && activeTab === 'pert' && renderPertView()}
 
-        {authUser && activeTab === 'kanban' && renderKanbanView()}
+          {isRegularUserUnlocked && activeTab === 'kanban' && renderKanbanView()}
 
-        {authUser && activeTab === 'fiche' && (
-          <FicheTechniquePages
-            dossier={activeDossier}
-            userProfile={userProfile}
-            currency={currency}
-            language={language}
-          />
-        )}
+          {isRegularUserUnlocked && activeTab === 'fiche' && (
+            <FicheTechniquePages
+              dossier={activeDossier}
+              userProfile={userProfile}
+              currency={currency}
+              language={language}
+            />
+          )}
 
-        {authUser && activeTab === 'docgen' && (
-          <DocumentGeneratorView
-            dossier={activeDossier}
-            userProfile={userProfile}
-            currency={currency}
-            language={language}
-            customDocsData={activeProgramCustomDocsData}
-            onUpdateDocField={handleUpdateDocField}
-            onResetDocDefaults={handleResetDocDefaults}
-            filterAxeId={filterAxeId}
-            setFilterAxeId={setFilterAxeId}
-            filterProjectId={filterProjectId}
-            setFilterProjectId={setFilterProjectId}
-          />
-        )}
+          {isSuperAdminUnlocked &&
+            activeTab !== 'accueil' &&
+            authUser && (
+              <SuperAdminDashboardView
+                currentUser={authUser}
+                language={language}
+                onLockDevice={() => {
+                  setIsDeviceLocked(true);
+                  setSuperAdminAuthModalStep('device_locked');
+                  setIsSuperAdminAuthModalOpen(true);
+                }}
+                onSignOut={handleSignOut}
+                onShowToast={showToast}
+              />
+            )}
+
+          {isRegularUserUnlocked && activeTab === 'docgen' && (
+            <DocumentGeneratorView
+              dossier={activeDossier}
+              userProfile={userProfile}
+              currency={currency}
+              language={language}
+              customDocsData={activeProgramCustomDocsData}
+              onUpdateDocField={handleUpdateDocField}
+              onResetDocDefaults={handleResetDocDefaults}
+              filterAxeId={filterAxeId}
+              setFilterAxeId={setFilterAxeId}
+              filterProjectId={filterProjectId}
+              setFilterProjectId={setFilterProjectId}
+            />
+          )}
+        </Suspense>
       </main>
 
       {/* Modale Fiche Acteur Interne ouverte depuis l'onglet Catégorie */}
-      {authUser && isCategoryProfileModalOpen && (
-        <InternalActorProfileModal
-          isOpen={isCategoryProfileModalOpen}
-          onClose={() => setIsCategoryProfileModalOpen(false)}
-          initialActorName={selectedCategoryActorName}
-          allActorsList={activeRaciContext.internalOnlyActors}
-          raciContextInfo={{
-            rList: activeRaciContext.rList,
-            aList: activeRaciContext.aList,
-            cList: activeRaciContext.cList,
-            iList: activeRaciContext.iList
-          }}
-          dossier={activeDossier}
-          userProfile={userProfile}
-          language={language}
-          currency={currency}
-          executingOrgName={
-            activeDossier.institution ||
-            userProfile.institution ||
-            'Organisation Pilote du Programme'
-          }
-          executingDepartment="Direction du Pilotage Stratégique & PMO"
-          onApplyToDoc={(docType, fields) => {
-            Object.entries(fields).forEach(([k, v]) => {
-              if (v !== undefined) {
-                handleUpdateDocField(docType, k as keyof CustomDocFields, v);
-              }
-            });
-          }}
-          onSelectDocType={docType => {
-            navigateTo('docgen');
-          }}
-        />
+      {isRegularUserUnlocked && isCategoryProfileModalOpen && (
+        <Suspense fallback={null}>
+          <InternalActorProfileModal
+            isOpen={isCategoryProfileModalOpen}
+            onClose={() => setIsCategoryProfileModalOpen(false)}
+            initialActorName={selectedCategoryActorName}
+            allActorsList={activeRaciContext.internalOnlyActors}
+            raciContextInfo={{
+              rList: activeRaciContext.rList,
+              aList: activeRaciContext.aList,
+              cList: activeRaciContext.cList,
+              iList: activeRaciContext.iList
+            }}
+            dossier={activeDossier}
+            userProfile={userProfile}
+            language={language}
+            currency={currency}
+            executingOrgName={
+              activeDossier.institution ||
+              userProfile.institution ||
+              'Organisation Pilote du Programme'
+            }
+            executingDepartment="Direction du Pilotage Stratégique & PMO"
+            onApplyToDoc={(docType, fields) => {
+              Object.entries(fields).forEach(([k, v]) => {
+                if (v !== undefined) {
+                  handleUpdateDocField(docType, k as keyof CustomDocFields, v);
+                }
+              });
+            }}
+            onSelectDocType={docType => {
+              navigateTo('docgen');
+            }}
+          />
+        </Suspense>
       )}
 
       {/* Modale Globale Scanner QR Code & Code-Barres (Contrôle d'Accès Interne & vCard) */}
-      {authUser && isGlobalScannerOpen && (
-        <QrBarcodeScannerModal
-          isOpen={isGlobalScannerOpen}
-          onClose={() => setIsGlobalScannerOpen(false)}
-          dossier={activeDossier}
-          userProfile={userProfile}
-          language={language}
-        />
+      {isRegularUserUnlocked && isGlobalScannerOpen && (
+        <Suspense fallback={null}>
+          <QrBarcodeScannerModal
+            isOpen={isGlobalScannerOpen}
+            onClose={() => setIsGlobalScannerOpen(false)}
+            dossier={activeDossier}
+            userProfile={userProfile}
+            language={language}
+          />
+        </Suspense>
       )}
+
+      {/* Modale de Sécurité Post-Google Sign-In : Code PIN (0000 par défaut, saisie clavier appareil), Touch ID / Face ID & Réinitialisation Gmail */}
+      <SuperAdminAuthModal
+        isOpen={isSuperAdminAuthModalOpen || isDeviceLocked}
+        initialStep={
+          isDeviceLocked ? 'device_locked' : superAdminAuthModalStep
+        }
+        currentUser={authUser}
+        language={language}
+        onClose={() => {
+          if (!isDeviceLocked && isPinVerified) {
+            setIsSuperAdminAuthModalOpen(false);
+          }
+        }}
+        onAuthenticatedSuccess={(verifiedUser, assignedRole) => {
+          setAuthUser(verifiedUser);
+          void syncFirebaseUserToRegistry(verifiedUser);
+          setIsPinVerified(true);
+          setSessionPinVerifiedForUser(verifiedUser.uid, true);
+          setIsDeviceLocked(false);
+          setIsSuperAdminAuthModalOpen(false);
+
+          if (
+            assignedRole === 'super_admin' ||
+            isSuperAdminEmail(verifiedUser.email)
+          ) {
+            setActiveTab('super_admin');
+            showToast(
+              language === 'EN'
+                ? 'Welcome Super Administrator! Exclusive Console unlocked.'
+                : 'Bienvenue Super Administrateur ! Console exclusive déverrouillée.'
+            );
+          } else {
+            setActiveTab(prev =>
+              prev === 'accueil' || prev === 'super_admin'
+                ? 'projects'
+                : prev
+            );
+            showToast(
+              language === 'EN'
+                ? `Welcome! User workspace unlocked (${verifiedUser.email})`
+                : `Bienvenue ! Espace Utilisateur déverrouillé (${verifiedUser.email})`
+            );
+          }
+        }}
+        onSignOut={handleSignOut}
+      />
 
       {/* Modale de Diagnostic Domaine Firebase non autorisé & Popups bloquées */}
       {isAuthHelpModalOpen && (
@@ -3773,7 +4186,7 @@ export function App() {
           onClose={() => setIsAuthHelpModalOpen(false)}
           onRetryGooglePopup={() => {
             setIsAuthHelpModalOpen(false);
-            handleGoogleSignIn();
+            handleDirectGooglePopupRetry();
           }}
           errorCode={authErrorCode}
           errorMessage={authErrorMessage}
@@ -3781,8 +4194,8 @@ export function App() {
         />
       )}
 
-      {/* INSTITUTIONAL FOOTER — ONLY ON HOME PAGE (accueil) OR WHEN UNCONNECTED */}
-      {(!authUser || activeTab === 'accueil') && (
+      {/* INSTITUTIONAL FOOTER — ONLY ON HOME PAGE (accueil) OR WHEN UNCONNECTED / LOCKED */}
+      {(!isUnlocked || activeTab === 'accueil') && (
         <footer className="bg-[#0c4a6e] text-white border-t-4 border-[#90D5FF] mt-12">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">

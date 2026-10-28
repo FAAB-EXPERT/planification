@@ -18,9 +18,9 @@ export const FirebaseAuthHelpModal: React.FC<FirebaseAuthHelpModalProps> = ({
   errorMessage,
   language
 }) => {
+  const [copied, setCopied] = useState(false);
   if (!isOpen) return null;
 
-  const [copied, setCopied] = useState(false);
   const currentDomain = typeof window !== 'undefined' ? window.location.hostname : '';
   const isEn = language === 'EN';
 

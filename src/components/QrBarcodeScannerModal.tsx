@@ -31,8 +31,10 @@ import {
   buildBadgeQrPayload,
   buildBusinessCardVCardPayload,
   verifyScannedPayloadAgainstDossier,
+  decodeQrOrBarcodeFromSource,
   ScannedActorVerificationResult
 } from '../qrAndBarcodeUtils';
+import { saveProgramFile } from '../services/exportStorage';
 import {
   ScannableQrCodeSvg,
   ScannableCode128BarcodeSvg
@@ -68,6 +70,7 @@ export const QrBarcodeScannerModal: React.FC<QrBarcodeScannerModalProps> = ({
   const [verificationResult, setVerificationResult] =
     useState<ScannedActorVerificationResult | null>(null);
   const [scanHistory, setScanHistory] = useState<ScannedActorVerificationResult[]>([]);
+  const [contactSavedNotice, setContactSavedNotice] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -190,28 +193,21 @@ export const QrBarcodeScannerModal: React.FC<QrBarcodeScannerModalProps> = ({
         await videoRef.current.play();
       }
 
-      // Si BarcodeDetector natif est supporté par le navigateur, scanner automatiquement les frames vidéo
-      const BarcodeDetectorClass = (window as any).BarcodeDetector;
-      if (BarcodeDetectorClass) {
-        const detector = new BarcodeDetectorClass({
-          formats: ['qr_code', 'code_128', 'code_39', 'ean_13']
-        });
-        scanIntervalRef.current = window.setInterval(async () => {
-          if (videoRef.current && videoRef.current.readyState >= 2) {
-            try {
-              const codes = await detector.detect(videoRef.current);
-              if (codes && codes.length > 0 && codes[0].rawValue) {
-                const rawVal = codes[0].rawValue;
-                setManualInput(rawVal);
-                executeVerification(rawVal);
-                stopCameraStream();
-              }
-            } catch {
-              // ignore frame error
+      // Scanner automatiquement les frames vidéo (BarcodeDetector natif + décodeurs optiques TS QR 2D & CODE-128 1D)
+      scanIntervalRef.current = window.setInterval(async () => {
+        if (videoRef.current && videoRef.current.readyState >= 2) {
+          try {
+            const decodedVal = await decodeQrOrBarcodeFromSource(videoRef.current);
+            if (decodedVal) {
+              setManualInput(decodedVal);
+              executeVerification(decodedVal);
+              stopCameraStream();
             }
+          } catch {
+            // ignore frame error
           }
-        }, 450);
-      }
+        }
+      }, 450);
     } catch {
       setCameraError(
         isEn
@@ -231,27 +227,21 @@ export const QrBarcodeScannerModal: React.FC<QrBarcodeScannerModalProps> = ({
       if (!dataUrl) return;
       setUploadedPreviewUrl(dataUrl);
 
-      // Tenter la détection native BarcodeDetector sur l'image importée
-      const BarcodeDetectorClass = (window as any).BarcodeDetector;
-      if (BarcodeDetectorClass) {
-        try {
-          const img = new Image();
-          img.src = dataUrl;
-          await new Promise(resolve => {
-            img.onload = resolve;
-          });
-          const detector = new BarcodeDetectorClass({
-            formats: ['qr_code', 'code_128', 'code_39', 'ean_13']
-          });
-          const results = await detector.detect(img);
-          if (results && results.length > 0 && results[0].rawValue) {
-            setManualInput(results[0].rawValue);
-            executeVerification(results[0].rawValue);
-            return;
-          }
-        } catch {
-          // fallback below
+      // Tenter la détection optique complète (BarcodeDetector + Décodeurs TS QR 2D & CODE-128 1D) sur l'image importée
+      try {
+        const img = new Image();
+        img.src = dataUrl;
+        await new Promise(resolve => {
+          img.onload = resolve;
+        });
+        const decodedVal = await decodeQrOrBarcodeFromSource(img);
+        if (decodedVal) {
+          setManualInput(decodedVal);
+          executeVerification(decodedVal);
+          return;
         }
+      } catch {
+        // fallback below
       }
 
       // Fallback intelligent : rechercher si le nom du fichier correspond à un acteur ou matricule
@@ -329,33 +319,75 @@ export const QrBarcodeScannerModal: React.FC<QrBarcodeScannerModalProps> = ({
     }
   };
 
-  const handleDownloadScannedVcf = () => {
+  const handleDownloadScannedVcf = async () => {
     if (!verificationResult) return;
+    const parts = (verificationResult.actorName || 'Expert Interne').trim().split(/\s+/);
+    const lastName = parts.length > 1 ? parts[0] : verificationResult.actorName;
+    const firstName = parts.length > 1 ? parts.slice(1).join(' ') : '';
     const vcardText =
       verificationResult.scanType === 'VCARD_QR' &&
       verificationResult.rawPayload.includes('BEGIN:VCARD')
         ? verificationResult.rawPayload
-        : `BEGIN:VCARD
-VERSION:3.0
-FN:${verificationResult.actorName}
-TITLE:${verificationResult.roleOrFunction}
-ORG:${verificationResult.organization};${verificationResult.department}
-TEL;TYPE=CELL,VOICE:${verificationResult.phone}
-EMAIL;TYPE=PREF,INTERNET:${verificationResult.email}
-NOTE:Programme: ${verificationResult.programmeName} | Matricule: ${verificationResult.matricule}
-END:VCARD`;
+        : [
+            'BEGIN:VCARD',
+            'VERSION:3.0',
+            `N:${lastName};${firstName};;;`,
+            `FN:${verificationResult.actorName}`,
+            `TITLE:${verificationResult.roleOrFunction}`,
+            `ORG:${verificationResult.organization};${verificationResult.department}`,
+            `TEL;TYPE=CELL,VOICE:${verificationResult.phone || verificationResult.emergencyPhone}`,
+            ...(verificationResult.phoneWork &&
+            verificationResult.phoneWork !== verificationResult.phone
+              ? [`TEL;TYPE=WORK,VOICE:${verificationResult.phoneWork}`]
+              : []),
+            `EMAIL;TYPE=PREF,WORK,INTERNET:${verificationResult.email}`,
+            ...(verificationResult.address
+              ? [`ADR;TYPE=WORK:;;${verificationResult.address};;;;`]
+              : []),
+            ...(verificationResult.website
+              ? [
+                  `URL:${
+                    verificationResult.website.startsWith('http')
+                      ? verificationResult.website
+                      : `https://${verificationResult.website}`
+                  }`
+                ]
+              : []),
+            `NOTE:Programme: ${verificationResult.programmeName} | Matricule: ${verificationResult.matricule} | RACI: ${verificationResult.raciRoles}`,
+            'END:VCARD'
+          ].join('\r\n');
 
-    const blob = new Blob([vcardText], { type: 'text/vcard;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `contact_${verificationResult.actorName
+    const fileName = `contact_${verificationResult.actorName
       .replace(/\s+/g, '_')
       .toLowerCase()}.vcf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const saved = await saveProgramFile({
+      programName: dossier.name,
+      fileName,
+      content: vcardText,
+      mimeType: 'text/vcard;charset=utf-8'
+    });
+    // Si enregistré via le serveur local, déclencher aussi l'ouverture directe du fichier .vcf pour l'application Contacts du téléphone/ordinateur
+    if (saved.method === 'dev-server' || saved.method === 'fs-api') {
+      try {
+        const blob = new Blob([vcardText], { type: 'text/vcard;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch {
+        // ignore
+      }
+    }
+    setContactSavedNotice(
+      isEn
+        ? `✓ Contact "${verificationResult.actorName}" (.vcf) saved to phone contacts & folder "${saved.relativePath}"!`
+        : `✓ Contact « ${verificationResult.actorName} » (.vcf) prêt pour le répertoire téléphonique et enregistré dans « ${saved.relativePath} » !`
+    );
+    setTimeout(() => setContactSavedNotice(null), 5500);
   };
 
   if (!isOpen) return null;
@@ -844,38 +876,61 @@ END:VCARD`;
                       </div>
                     </div>
 
-                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-1 sm:col-span-2">
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-1.5 sm:col-span-2">
                       <div className="text-[9.5px] font-black uppercase text-slate-400">
-                        Coordonnées Professionnelles & Contact d’Urgence
+                        Coordonnées Complètes de l’Acteur (Carte de Visite & Répertoire Téléphonique)
                       </div>
-                      <div className="flex flex-wrap items-center gap-4 text-[11px] font-bold text-slate-700 dark:text-slate-200">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200">
                         <span className="inline-flex items-center gap-1">
                           <Phone className="w-3.5 h-3.5 text-[#0284c7]" />
-                          {verificationResult.phone || verificationResult.emergencyPhone}
+                          <span>Mobile : {verificationResult.phone || verificationResult.emergencyPhone}</span>
                         </span>
+                        {verificationResult.phoneWork && (
+                          <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300">
+                            <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Bureau : {verificationResult.phoneWork}</span>
+                          </span>
+                        )}
                         <span className="inline-flex items-center gap-1">
                           <Mail className="w-3.5 h-3.5 text-[#0284c7]" />
-                          {verificationResult.email || '—'}
+                          <span>{verificationResult.email || '—'}</span>
                         </span>
                         <span className="text-rose-600 dark:text-rose-400">
                           Urgence : {verificationResult.emergencyPhone}
                         </span>
                       </div>
+                      {(verificationResult.address || verificationResult.website) && (
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10.5px] font-semibold text-slate-600 dark:text-slate-300 pt-1 border-t border-slate-200/70 dark:border-slate-700/70">
+                          {verificationResult.address && (
+                            <span>📍 Siège / Adresse : {verificationResult.address}</span>
+                          )}
+                          {verificationResult.website && (
+                            <span>🌐 Site Web : {verificationResult.website}</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
+
+                  {contactSavedNotice && (
+                    <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-400 text-emerald-900 text-xs font-bold flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>{contactSavedNotice}</span>
+                    </div>
+                  )}
 
                   {/* BOUTONS D'ACTION SUR LA FICHE VÉRIFIÉE */}
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
                     <button
                       type="button"
                       onClick={handleDownloadScannedVcf}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-sky-50 hover:bg-sky-100 border border-sky-300 text-[#0c4a6e] text-xs font-black cursor-pointer"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black cursor-pointer shadow-sm"
                     >
-                      <Download className="w-4 h-4 text-[#0284c7]" />
+                      <Download className="w-4 h-4" />
                       <span>
                         {isEn
-                          ? 'Add to Phone Contacts (.vcf)'
-                          : 'Enregistrer dans les Contacts (.vcf)'}
+                          ? 'Save to Phone Contacts (.vcf)'
+                          : 'Enregistrer dans le Contact Téléphonique (.vcf)'}
                       </span>
                     </button>
 

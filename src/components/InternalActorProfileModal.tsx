@@ -36,6 +36,7 @@ import {
   CustomDocFields,
   InstitutionalDocType
 } from '../types';
+import { safeJsonParse, isSafeImageDataUrl } from '../securityUtils';
 import {
   buildInstitutionalDocPages,
   buildDynamicFieldsFromAppTabs,
@@ -46,6 +47,7 @@ import {
   generateBusinessCardPDF,
   generateProfessionalBadgePDF
 } from '../pdfExport';
+import { saveProgramFile } from '../services/exportStorage';
 import {
   defaultCustomDocsData,
   resolveInternalOnlyActorsForDossier,
@@ -336,7 +338,7 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
     try {
       const stored = localStorage.getItem(storageKey);
       if (stored) {
-        return JSON.parse(stored);
+        return safeJsonParse(stored, {});
       }
     } catch {
       // ignore
@@ -445,12 +447,18 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
   const handleCompanyLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      showToast(isEn ? 'Image file too large (max 8 MB)' : 'Fichier image trop volumineux (max 8 Mo)');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = ev => {
       const dataUrl = ev.target?.result as string;
-      if (dataUrl) {
+      if (dataUrl && isSafeImageDataUrl(dataUrl)) {
         updateCurrentProfile({ companyLogoDataUrl: dataUrl });
         showToast(isEn ? 'Company logo updated' : 'Logo de l’entreprise mis à jour avec succès');
+      } else {
+        showToast(isEn ? 'Unsupported or unsafe image format' : 'Format d’image non autorisé ou invalide');
       }
     };
     reader.readAsDataURL(file);
@@ -460,12 +468,18 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      showToast(isEn ? 'Photo file too large (max 8 MB)' : 'Photo trop volumineuse (max 8 Mo)');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = ev => {
       const dataUrl = ev.target?.result as string;
-      if (dataUrl) {
+      if (dataUrl && isSafeImageDataUrl(dataUrl)) {
         updateCurrentProfile({ photoDataUrl: dataUrl });
         showToast(isEn ? 'Member photo updated' : 'Photo du collaborateur mise à jour avec succès');
+      } else {
+        showToast(isEn ? 'Unsupported or unsafe photo format' : 'Format de photo non autorisé ou invalide');
       }
     };
     reader.readAsDataURL(file);
@@ -547,18 +561,35 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
     });
   };
 
-  // Téléchargement du fichier .vcf
-  const handleDownloadVcf = () => {
-    const blob = new Blob([activeVCardPayload], { type: 'text/vcard;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `carte_visite_${currentProfile.fullName.replace(/\s+/g, '_').toLowerCase()}.vcf`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    showToast(isEn ? '✓ VCF file downloaded!' : '✓ Fichier contact .vcf téléchargé avec succès !');
+  // Téléchargement du fichier .vcf dans le sous-dossier du programme actif + déclenchement de la fiche contact téléphonique
+  const handleDownloadVcf = async () => {
+    const fileName = `carte_visite_${currentProfile.fullName.replace(/\s+/g, '_').toLowerCase()}.vcf`;
+    const res = await saveProgramFile({
+      programName: dossier.name,
+      fileName,
+      content: activeVCardPayload,
+      mimeType: 'text/vcard;charset=utf-8'
+    });
+    if (res.method === 'dev-server' || res.method === 'fs-api') {
+      try {
+        const blob = new Blob([activeVCardPayload], { type: 'text/vcard;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch {
+        // ignore
+      }
+    }
+    showToast(
+      isEn
+        ? `✓ Phone contact (.vcf) ready & saved in: ${res.path}`
+        : `✓ Contact téléphonique (.vcf) prêt et enregistré dans : ${res.path}`
+    );
   };
 
 
@@ -684,9 +715,9 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
   }, [cvDetailFields, dossier, actorUserProfile, currency, language]);
 
   // Téléchargement direct du PDF pour le CV Exécutif (Doc 12)
-  const handleDownloadCvExecPdf = () => {
+  const handleDownloadCvExecPdf = async () => {
     try {
-      generateInstitutionalDocumentPDF(
+      const res = await generateInstitutionalDocumentPDF(
         'cv_executif',
         cvExecFields,
         dossier,
@@ -696,8 +727,8 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
       );
       showToast(
         isEn
-          ? `✓ Executive CV (Doc 12) PDF downloaded for ${currentProfile.fullName}!`
-          : `✓ PDF du CV Exécutif (Doc 12) téléchargé pour ${currentProfile.fullName} !`
+          ? `✓ Executive CV (Doc 12) saved in: ${res.path}`
+          : `✓ CV Exécutif (Doc 12) enregistré dans : ${res.path}`
       );
     } catch (err) {
       console.error('PDF error:', err);
@@ -706,9 +737,9 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
   };
 
   // Téléchargement direct du PDF pour le CV Détaillé Bailleurs (Doc 13)
-  const handleDownloadCvDetailPdf = () => {
+  const handleDownloadCvDetailPdf = async () => {
     try {
-      generateInstitutionalDocumentPDF(
+      const res = await generateInstitutionalDocumentPDF(
         'cv_detaille',
         cvDetailFields,
         dossier,
@@ -718,8 +749,8 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
       );
       showToast(
         isEn
-          ? `✓ Detailed CV (Doc 13 - 4 Pages) PDF downloaded for ${currentProfile.fullName}!`
-          : `✓ PDF du CV Détaillé Bailleurs (Doc 13 - 4 Pages) téléchargé pour ${currentProfile.fullName} !`
+          ? `✓ Detailed CV (Doc 13) saved in: ${res.path}`
+          : `✓ CV Détaillé (Doc 13) enregistré dans : ${res.path}`
       );
     } catch (err) {
       console.error('PDF error:', err);
@@ -727,10 +758,10 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
     }
   };
 
-  // Impression / Téléchargement PDF direct de la Carte de Visite (85 x 55 mm — Recto & Verso avec repères de coupe)
-  const handlePrintBusinessCardPdf = () => {
+  // Impression / Téléchargement PDF direct de la Carte de Visite (85 x 55 mm — Papier A4 & Cartes PVC)
+  const handlePrintBusinessCardPdf = async () => {
     try {
-      generateBusinessCardPDF(
+      const res = await generateBusinessCardPDF(
         currentProfile,
         dossier,
         effectiveCompanyLogo,
@@ -738,8 +769,8 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
       );
       showToast(
         isEn
-          ? `✓ Business Card (85×55mm) print sheet generated for ${currentProfile.fullName}!`
-          : `✓ Planche d’impression Carte de Visite (85×55mm) générée pour ${currentProfile.fullName} !`
+          ? `✓ Business Card (Paper A4 & PVC 85×55mm) saved in: ${res.path}`
+          : `✓ Carte de Visite (Papier A4 & PVC 85×55mm) enregistrée dans : ${res.path}`
       );
     } catch (err) {
       console.error('Business Card PDF error:', err);
@@ -751,10 +782,10 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
     }
   };
 
-  // Impression / Téléchargement PDF direct du Badge Professionnel CR80 (54 x 86 mm — Recto & Verso avec Photo & Code-barres)
-  const handlePrintBadgePdf = () => {
+  // Impression / Téléchargement PDF direct du Badge Professionnel CR80 (54 x 86 mm — Papier A4 & Cartes PVC)
+  const handlePrintBadgePdf = async () => {
     try {
-      generateProfessionalBadgePDF(
+      const res = await generateProfessionalBadgePDF(
         currentProfile,
         dossier,
         effectiveCompanyLogo,
@@ -762,8 +793,8 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
       );
       showToast(
         isEn
-          ? `✓ Professional Badge (54×86mm) print sheet generated for ${currentProfile.fullName}!`
-          : `✓ Planche d’impression Badge Professionnel (54×86mm) générée pour ${currentProfile.fullName} !`
+          ? `✓ Professional Badge (Paper A4 & PVC CR80 54×86mm) saved in: ${res.path}`
+          : `✓ Badge Professionnel (Papier A4 & PVC CR80 54×86mm) enregistré dans : ${res.path}`
       );
     } catch (err) {
       console.error('Badge PDF error:', err);
@@ -1506,15 +1537,15 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
                         </div>
 
                         {/* Corps central : Nom et rôle */}
-                        <div className="my-auto relative z-10 py-1">
-                          <h4 className="text-sm font-black uppercase tracking-tight text-white leading-tight drop-shadow-sm">
+                        <div className="my-auto relative z-10 py-1 min-w-0">
+                          <h4 className="text-xs sm:text-sm font-black uppercase tracking-tight text-white leading-tight drop-shadow-sm truncate">
                             {currentProfile.fullName}
                           </h4>
-                          <div className="text-[9.5px] font-extrabold text-[#90D5FF] leading-snug">
+                          <div className="text-[8.5px] sm:text-[9.5px] font-extrabold text-[#90D5FF] leading-snug truncate">
                             {currentProfile.officialRole}
                           </div>
                           {currentProfile.serviceUnit && (
-                            <div className="text-[7.5px] text-sky-200 font-medium">
+                            <div className="text-[7px] sm:text-[7.5px] text-sky-200 font-medium truncate">
                               {currentProfile.serviceUnit}
                             </div>
                           )}
@@ -1541,30 +1572,30 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
                       <div className="w-full max-w-[420px] aspect-[85/55] rounded-xl bg-slate-900 text-white p-3.5 shadow-xl border border-slate-700 relative overflow-hidden flex flex-col justify-between items-center text-center">
                         <div className="absolute inset-0 bg-gradient-to-tr from-[#0c4a6e]/40 via-transparent to-[#0284c7]/20 pointer-events-none" />
 
-                        <div className="w-full flex items-center justify-between text-[7px] font-black uppercase tracking-widest text-[#90D5FF] relative z-10">
-                          <span>{currentProfile.employeeId || 'MAT-2026-PILOTE'}</span>
-                          <span>PROGRAMME : {dossier.name}</span>
+                        <div className="w-full flex items-center justify-between gap-2 text-[7px] font-black uppercase tracking-widest text-[#90D5FF] relative z-10 min-w-0">
+                          <span className="shrink-0">{currentProfile.employeeId || 'MAT-2026-PILOTE'}</span>
+                          <span className="truncate">PROGRAMME : {dossier.name}</span>
                         </div>
 
                         {/* Logo d'entreprise centré + QR Code Universel vCard 3.0 */}
-                        <div className="flex items-center justify-center gap-3.5 relative z-10 my-auto">
+                        <div className="flex items-center justify-center gap-2.5 sm:gap-3.5 relative z-10 my-auto w-full min-w-0">
                           <div
-                            className="p-1.5 rounded-lg bg-white shadow-md shrink-0 cursor-pointer"
+                            className="p-1.5 rounded-lg bg-white shadow-md shrink-0 cursor-pointer hover:ring-2 hover:ring-emerald-400 transition-all"
                             onClick={() => {
                               setScannerPayload(activeVCardPayload);
                               setIsScannerOpen(true);
                             }}
-                            title="QR Code vCard 3.0 (Cliquer pour tester avec le scanner intégré)"
+                            title="QR Code vCard 3.0 (Scannable par téléphone ou cliquer pour ouvrir le lecteur et enregistrer le contact)"
                           >
                             <ScannableQrCodeSvg
                               value={activeVCardPayload}
-                              size={58}
+                              size={74}
                               fgColor="#0c4a6e"
                               bgColor="#ffffff"
                             />
                           </div>
 
-                          <div className="text-left space-y-1">
+                          <div className="text-left space-y-1 min-w-0 flex-1">
                             {effectiveCompanyLogo && (
                               <img
                                 src={effectiveCompanyLogo}
@@ -1572,19 +1603,19 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
                                 className="h-6 w-auto max-w-[90px] object-contain rounded bg-white p-0.5"
                               />
                             )}
-                            <div className="text-[8.5px] font-black uppercase text-white">
+                            <div className="text-[8px] sm:text-[8.5px] font-black uppercase text-white truncate">
                               {currentProfile.executingOrgName}
                             </div>
-                            <div className="text-[7.5px] italic text-[#90D5FF] leading-snug max-w-[190px]">
+                            <div className="text-[7px] sm:text-[7.5px] italic text-[#90D5FF] leading-snug line-clamp-2 break-words">
                               « {currentProfile.businessCardSlogan || 'Excellence Opérationnelle & Rigueur'} »
                             </div>
-                            <div className="text-[6.5px] text-emerald-300 font-bold">
+                            <div className="text-[6.5px] text-emerald-300 font-bold truncate">
                               QR vCard 3.0 : Scan → Ajout direct aux Contacts
                             </div>
                           </div>
                         </div>
 
-                        <div className="text-[7px] text-slate-400 border-t border-slate-800 w-full pt-1">
+                        <div className="text-[6.5px] sm:text-[7px] text-slate-400 border-t border-slate-800 w-full pt-1 truncate">
                           {currentProfile.websiteUrl || 'www.programme-pilote.org'} · Carte Officielle d’Accréditation (Catégorie : Interne)
                         </div>
                       </div>
@@ -1599,7 +1630,11 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0c4a6e] hover:bg-[#075985] text-white text-xs font-bold transition-colors cursor-pointer shadow-xs"
                     >
                       <Printer className="w-3.5 h-3.5 text-[#90D5FF]" />
-                      <span>{isEn ? 'Print Card (85x55mm)' : 'Imprimer la Carte (85x55mm)'}</span>
+                      <span>
+                        {isEn
+                          ? 'Download & Print Card (Paper A4 & PVC 85×55mm)'
+                          : 'Télécharger & Imprimer Carte (Papier A4 & PVC 85×55mm)'}
+                      </span>
                     </button>
                     <button
                       type="button"
@@ -1626,7 +1661,11 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-50 dark:bg-slate-800 border border-sky-300 dark:border-slate-700 text-[#0c4a6e] dark:text-[#90D5FF] hover:bg-sky-100 text-xs font-bold transition-colors cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>{isEn ? 'Download .vcf' : 'Télécharger (.vcf)'}</span>
+                      <span>
+                        {isEn
+                          ? 'Save to Phone Contacts (.vcf)'
+                          : 'Enregistrer dans le Contact Téléphonique (.vcf)'}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -1899,7 +1938,7 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
                           <div className="text-[6.5px] text-emerald-400 font-bold">Catégorie : Interne</div>
                         </div>
                         <div
-                          className="p-1 rounded bg-white shrink-0 cursor-pointer"
+                          className="p-1 rounded bg-white shrink-0 cursor-pointer hover:ring-2 hover:ring-emerald-400 transition-all"
                           onClick={() => {
                             setScannerPayload(activeBadgeQrPayload);
                             setIsScannerOpen(true);
@@ -1908,7 +1947,7 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
                         >
                           <ScannableQrCodeSvg
                             value={activeBadgeQrPayload}
-                            size={42}
+                            size={60}
                             fgColor="#0f172a"
                             bgColor="#ffffff"
                           />
@@ -1928,7 +1967,11 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0c4a6e] hover:bg-[#075985] text-white text-xs font-bold transition-colors cursor-pointer shadow-xs"
                     >
                       <Printer className="w-3.5 h-3.5 text-[#90D5FF]" />
-                      <span>{isEn ? 'Print Badge (54x86mm)' : 'Imprimer le Badge (54x86mm)'}</span>
+                      <span>
+                        {isEn
+                          ? 'Download & Print Badge (Paper A4 & PVC CR80 54×86mm)'
+                          : 'Télécharger & Imprimer Badge (Papier A4 & PVC CR80 54×86mm)'}
+                      </span>
                     </button>
                     <button
                       type="button"
@@ -1941,8 +1984,23 @@ export const InternalActorProfileModal: React.FC<InternalActorProfileModalProps>
                       <QrCode className="w-3.5 h-3.5" />
                       <span>
                         {isEn
-                          ? 'Scan & Authenticate Badge (QR & CODE-128)'
-                          : 'Scanner & Authentifier le Badge (QR & CODE-128)'}
+                          ? 'Scan Badge QR Code'
+                          : 'Scanner le QR du Badge'}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setScannerPayload(currentProfile.employeeId || 'MAT-PILOTE-001');
+                        setIsScannerOpen(true);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-700 hover:bg-sky-800 text-white text-xs font-bold transition-colors cursor-pointer shadow-xs"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5 text-[#90D5FF]" />
+                      <span>
+                        {isEn
+                          ? 'Scan 1D Barcode (CODE-128)'
+                          : 'Scanner le Code-Barres 1D (CODE-128)'}
                       </span>
                     </button>
                   </div>

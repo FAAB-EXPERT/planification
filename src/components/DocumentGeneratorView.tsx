@@ -135,6 +135,14 @@ export const DocumentGeneratorView: React.FC<DocumentGeneratorViewProps> = ({
   );
   const [isActorProfileModalOpen, setIsActorProfileModalOpen] = useState<boolean>(false);
   const [isScannerModalOpen, setIsScannerModalOpen] = useState<boolean>(false);
+  const [exportToastMsg, setExportToastMsg] = useState<string | null>(null);
+
+  const showExportToast = (msg: string) => {
+    setExportToastMsg(msg);
+    setTimeout(() => {
+      setExportToastMsg(prev => (prev === msg ? null : prev));
+    }, 4500);
+  };
 
   const handleOpenActorModal = (actorName?: string) => {
     if (actorName) {
@@ -544,15 +552,22 @@ export const DocumentGeneratorView: React.FC<DocumentGeneratorViewProps> = ({
     [slides]
   );
 
-  const handleDownloadPDF = () => {
-    generateInstitutionalDocumentPDF(
+  const handleDownloadPDF = async () => {
+    const res = await generateInstitutionalDocumentPDF(
       selectedDocType,
       currentFields,
-      effectiveDossier,
+      { ...effectiveDossier, name: dossier.name },
       userProfile,
       currency,
       language
     );
+    if (res) {
+      showExportToast(
+        language === 'EN'
+          ? `✓ Document saved in programme subfolder: ${res.path}`
+          : `✓ Document généré et enregistré dans le sous-dossier du programme : ${res.path}`
+      );
+    }
   };
 
   const optimizeImageFileToDataUrl = (file: File): Promise<string> => {
@@ -685,6 +700,12 @@ export const DocumentGeneratorView: React.FC<DocumentGeneratorViewProps> = ({
 
   return (
     <div className="space-y-3 sm:space-y-5 w-full max-w-full min-w-0">
+      {exportToastMsg && (
+        <div className="fixed bottom-5 right-5 z-[9999] max-w-md rounded-xl bg-[#0c4a6e] text-white border-2 border-[#90D5FF] px-4 py-3 shadow-2xl flex items-center gap-2.5 text-xs font-extrabold">
+          <Check className="w-4 h-4 text-[#90D5FF] shrink-0" />
+          <span className="leading-snug break-words">{exportToastMsg}</span>
+        </div>
+      )}
       {/* Validation Modal before deleting an uploaded image */}
       {pendingImageDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">

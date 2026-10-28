@@ -190,11 +190,32 @@
   }
 }
 
-/* Prevent horizontal page overflow on Mobile & Tablet (Portrait & Landscape) */
+/* Prevent horizontal page overflow & word overlaps on Mobile, Tablet & Desktop */
 html,
 body {
   max-width: 100%;
   overflow-x: clip;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+li,
+td,
+th {
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+@media (max-width: 640px) {
+  .scroll-reveal-left,
+  .scroll-reveal-right {
+    transform: translate3d(0, var(--reveal-y, 24px), 0) scale(0.96);
+  }
 }
 
 .hide-scrollbar::-webkit-scrollbar {

@@ -592,7 +592,7 @@ export const SlideDeckWorkspace: React.FC<SlideDeckWorkspaceProps> = ({
             slideRefs.current[slide.slideNumber] = el;
           }}
           onClick={() => setFocusedSlideNumber(slide.slideNumber)}
-          className={`w-full rounded-xl bg-white shadow-xl border-2 transition-all flex flex-col justify-between select-none cursor-pointer ${
+          className={`w-full rounded-xl bg-white shadow-xl border-2 transition-all flex flex-col justify-between select-none cursor-pointer overflow-hidden ${
             isFocused
               ? 'border-[#0284c7] ring-4 ring-sky-400/30'
               : 'border-slate-300 hover:border-sky-400'
@@ -600,8 +600,8 @@ export const SlideDeckWorkspace: React.FC<SlideDeckWorkspaceProps> = ({
           style={{ minHeight: '470px', height: 'auto' }}
         >
           {/* Bandeau supérieur marine sans aucun texte "undefined" */}
-          <div className="bg-[#0c4a6e] text-white px-5 py-2.5 border-b-4 border-[#90D5FF] flex items-center justify-between gap-4 rounded-t-[10px]">
-            <div className="flex items-center gap-2 min-w-0">
+          <div className="bg-[#0c4a6e] text-white px-5 py-2.5 border-b-4 border-[#90D5FF] flex flex-wrap items-center justify-between gap-2 rounded-t-[10px]">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               <span className="px-2.5 py-0.5 rounded-md bg-[#90D5FF] text-[#0c4a6e] text-[10px] font-black uppercase tracking-wider shrink-0">
                 SLIDE {slide.displaySlideNumber} / {slide.totalDisplaySlides}
               </span>
@@ -609,7 +609,7 @@ export const SlideDeckWorkspace: React.FC<SlideDeckWorkspaceProps> = ({
                 {badgeLabel}
               </span>
             </div>
-            <span className="text-[10px] font-bold text-[#90D5FF] shrink-0">
+            <span className="text-[10px] font-bold text-[#90D5FF] whitespace-normal break-words [overflow-wrap:anywhere] text-right">
               {refAndDateLabel}
             </span>
           </div>
@@ -692,9 +692,9 @@ export const SlideDeckWorkspace: React.FC<SlideDeckWorkspaceProps> = ({
               </div>
             )}
 
-            {/* 3. Cartouche Central du Titre Principal (Zéro troncature) */}
-            <div className="rounded-xl bg-[#0c4a6e] text-white p-5 border-l-8 border-[#90D5FF] shadow-md text-center">
-              <div className="inline-block px-3 py-0.5 rounded-full bg-[#0284c7] text-[#e0f2fe] text-[10px] font-black uppercase tracking-widest mb-2">
+            {/* 3. Cartouche Central du Titre Principal (Zéro débordement horizontal ni vertical) */}
+            <div className="rounded-xl bg-[#0c4a6e] text-white p-5 border-l-8 border-[#90D5FF] shadow-md text-center overflow-hidden">
+              <div className="inline-block max-w-full px-3 py-0.5 rounded-full bg-[#0284c7] text-[#e0f2fe] text-[10px] font-black uppercase tracking-widest mb-2 whitespace-normal break-words [overflow-wrap:anywhere]">
                 {slide.matrixBadge}
               </div>
               <h2 className="text-lg sm:text-xl font-black tracking-tight leading-snug uppercase text-white whitespace-normal break-words [overflow-wrap:anywhere]">
@@ -703,6 +703,14 @@ export const SlideDeckWorkspace: React.FC<SlideDeckWorkspaceProps> = ({
               <p className="text-xs font-semibold text-[#90D5FF] mt-1.5 leading-relaxed whitespace-normal break-words [overflow-wrap:anywhere]">
                 {slide.subtitle}
               </p>
+              <div className="mt-3 pt-2.5 border-t border-sky-400/30 flex flex-col items-center gap-0.5 text-[10px] leading-snug">
+                <p className="font-bold text-[#e0f2fe] whitespace-normal break-words [overflow-wrap:anywhere] max-w-full">
+                  {c.presenterLine}
+                </p>
+                <p className="font-semibold text-[#90D5FF] whitespace-normal break-words [overflow-wrap:anywhere] max-w-full">
+                  {c.locationAndDate || c.locationLine}
+                </p>
+              </div>
             </div>
 
             {/* 4. Bande des Cartes KPI (Zéro troncature) */}
@@ -761,7 +769,7 @@ export const SlideDeckWorkspace: React.FC<SlideDeckWorkspaceProps> = ({
           slideRefs.current[slide.slideNumber] = el;
         }}
         onClick={() => setFocusedSlideNumber(slide.slideNumber)}
-        className={`w-full rounded-xl bg-white shadow-xl border-2 transition-all flex flex-col justify-between select-none cursor-pointer ${
+        className={`w-full rounded-xl bg-white shadow-xl border-2 transition-all flex flex-col justify-between select-none cursor-pointer overflow-hidden ${
           isFocused
             ? 'border-[#0284c7] ring-4 ring-sky-400/30'
             : 'border-slate-300 hover:border-sky-400'

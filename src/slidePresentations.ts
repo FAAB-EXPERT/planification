@@ -1082,7 +1082,7 @@ export function buildInstitutionalSlideDeck(
       kpiCards: [
         { label: 'Statut des TDR', value: 'Prêt pour Accord', subtext: `Réf. ${refCode}`, accent: 'emerald' },
         { label: 'Délai Mobilisation', value: 'J + 7', subtext: 'Notification & Ordre de service', accent: 'primary' },
-        { label: 'Instance Décisionnelle', value: 'COPIL', subtext: `${donorOrg.slice(0, 28)}`, accent: 'sky' }
+        { label: 'Instance Décisionnelle', value: 'COPIL', subtext: donorOrg, accent: 'sky' }
       ],
       threeCards: [
         {
@@ -1100,7 +1100,7 @@ export function buildInstitutionalSlideDeck(
           bullets: [
             'Émission de l’Ordre de Service de démarrage',
             'Installation de l’équipe projet et collecte documentaire',
-            `Lancement des premières tâches du chemin critique (${criticalSeq.slice(0, 30)})`
+            `Lancement des premières tâches du chemin critique (${criticalSeq})`
           ]
         },
         {
@@ -1463,7 +1463,7 @@ export function buildInstitutionalSlideDeck(
           title: '2. Actions à 30 Jours',
           badge: 'Priorités',
           bullets: [
-            `Exécution prioritaire des tâches critiques : ${criticalSeq.slice(0, 32)}`,
+            `Exécution prioritaire des tâches critiques : ${criticalSeq}`,
             `Levée immédiate des ${blockedTasks} point(s) de blocage identifié(s)`,
             'Soumission des premiers livrables contractuels de la Matrice M9'
           ]
@@ -1903,7 +1903,7 @@ export function buildInstitutionalSlideDeck(
           title: '3. Priorités Stratégiques',
           badge: 'Q1 → Q4',
           bullets: [
-            `Sécurisation du chemin critique (${criticalSeq.slice(0, 28)})`,
+            `Sécurisation du chemin critique (${criticalSeq})`,
             `Lancement dans les délais des ${matricesData.M8.length} marchés du PPM (M8)`,
             `Levée immédiate des ${blockedTasks} blocage(s) opérationnel(s)`
           ]
@@ -2087,8 +2087,8 @@ export function buildInstitutionalSlideDeck(
       layout: 'two_columns',
       chart: budgetSplitDonutChart,
       kpiCards: [
-        { label: 'Part Bailleur (80%)', value: formatSlideAmount(donorShareFCFA, currency, lang), subtext: donorOrg.slice(0, 28), accent: 'primary' },
-        { label: 'Part Nationale (20%)', value: formatSlideAmount(nationalShareFCFA, currency, lang), subtext: execOrg.slice(0, 28), accent: 'sky' },
+        { label: 'Part Bailleur (80%)', value: formatSlideAmount(donorShareFCFA, currency, lang), subtext: donorOrg, accent: 'primary' },
+        { label: 'Part Nationale (20%)', value: formatSlideAmount(nationalShareFCFA, currency, lang), subtext: execOrg, accent: 'sky' },
         { label: 'Éligibilité Dépenses', value: '100%', subtext: 'Conformité fiduciaire', accent: 'emerald' }
       ],
       threeCards: axeSummaries.slice(0, 3).map((ax, i) => ({
@@ -3002,7 +3002,7 @@ export function buildInstitutionalSlideDeck(
       kpiCards: [
         { label: 'Livrables Audités (M9)', value: String(matricesData.M9.length), subtext: 'Catalogue contractuel', accent: 'primary' },
         { label: 'Taux Validation', value: `${progressPct}%`, subtext: `${completedTasks} PV signés`, accent: 'emerald' },
-        { label: 'Transfert Actifs', value: 'Opéré', subtext: execOrg.slice(0, 26), accent: 'sky' }
+        { label: 'Transfert Actifs', value: 'Opéré', subtext: execOrg, accent: 'sky' }
       ],
       threeCards: [],
       table: buildCompactSlideMatrixTable('M9', matricesData.M9, currency, 5)
