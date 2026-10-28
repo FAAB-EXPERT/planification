@@ -3563,7 +3563,13 @@ export function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+    <div
+      className={`min-h-screen flex flex-col ${
+        !isUnlocked || activeTab === 'accueil'
+          ? 'bg-transparent'
+          : 'bg-slate-50 dark:bg-slate-950'
+      } text-slate-900 dark:text-slate-100`}
+    >
       {/* Hidden JSON & CSV File Inputs */}
       <input
         ref={fileInputRef}
@@ -3616,7 +3622,7 @@ export function App() {
             onClick={() => navigateTo('accueil')}
             aria-label="Accueil FAAB PLAN"
             title="Accueil FAAB PLAN"
-            className="w-10 h-10 rounded-xl bg-white p-1 flex items-center justify-center border border-[#90D5FF]/80 shadow-md cursor-pointer shrink-0"
+            className="w-10 h-10 rounded-xl bg-[#0c4a6e]/90 p-0.5 flex items-center justify-center border border-[#90D5FF]/80 shadow-md cursor-pointer shrink-0"
           >
             <AppLogo className="w-full h-full" />
           </button>
@@ -3657,7 +3663,7 @@ export function App() {
             onClick={() => navigateTo('accueil')}
             className="flex items-center gap-2.5 sm:gap-3 cursor-pointer select-none min-w-0 flex-1"
           >
-            <div className="w-11 h-11 sm:w-12 sm:h-12 bg-white p-0.5 rounded-xl shadow-sm shrink-0 flex items-center justify-center">
+            <div className="w-11 h-11 sm:w-12 sm:h-12 shrink-0 flex items-center justify-center">
               <AppLogo className="w-full h-full" />
             </div>
             <div className="min-w-0">
@@ -3712,12 +3718,9 @@ export function App() {
                   : 'Mise à jour : Recharger l’application pour la mettre à jour'
               }
               aria-label={language === 'EN' ? 'Update App' : 'Mise à jour'}
-              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 h-9 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-300 text-[10px] sm:text-xs font-black transition-all cursor-pointer shrink-0 shadow-sm"
+              className="inline-flex items-center justify-center w-9 h-9 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-300 transition-all cursor-pointer shrink-0 shadow-sm"
             >
               <RefreshCw className="w-4 h-4 shrink-0" />
-              <span className="hidden sm:inline">
-                {language === 'EN' ? 'Update' : 'Mise à jour'}
-              </span>
             </button>
           )}
 
@@ -4196,10 +4199,10 @@ export function App() {
 
       {/* INSTITUTIONAL FOOTER — ONLY ON HOME PAGE (accueil) OR WHEN UNCONNECTED / LOCKED */}
       {(!isUnlocked || activeTab === 'accueil') && (
-        <footer className="bg-[#0c4a6e] text-white border-t-4 border-[#90D5FF] mt-12">
+        <footer className="relative z-10 bg-[#0c4a6e] text-white border-t-4 border-[#90D5FF] mt-12">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="bg-white p-1.5 rounded-xl shadow-md shrink-0">
+              <div className="shrink-0 flex items-center justify-center">
                 <AppLogo className="w-16 h-16 sm:w-20 sm:h-20" />
               </div>
               <div>

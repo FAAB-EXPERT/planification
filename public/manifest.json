@@ -23,37 +23,37 @@
   ],
   "icons": [
     {
-      "src": "./pwa-192x192.png",
+      "src": "./assets/aistudio/pwa-192x192_07377e05.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./pwa-192x192.png",
+      "src": "./assets/aistudio/pwa-192x192_07377e05.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "./pwa-512x512.png",
+      "src": "./assets/aistudio/pwa-512x512_28c10065.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./pwa-512x512.png",
+      "src": "./assets/aistudio/pwa-512x512_28c10065.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "./apple-touch-icon.png",
+      "src": "./assets/aistudio/apple-touch-icon_bcb26926.png",
       "sizes": "180x180",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./favicon.svg",
+      "src": "./assets/aistudio/favicon_56f6f572.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"

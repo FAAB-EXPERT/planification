@@ -422,12 +422,11 @@ export async function saveProgramFile(
     }
   }
 
-  // 1. TENTATIVE D'ÉCRITURE DIRECTE DANS LE DOSSIER SUR DISQUE
+  // 1. TENTATIVE D'ÉCRITURE DIRECTE DANS LE DOSSIER SUR DISQUE (File System Access API)
   if (typeof (window as any).showDirectoryPicker === 'function') {
     try {
       let rootHandle = memoryDirectoryHandle || (await getStoredDirectoryHandle());
 
-      // Si le handle n'est pas encore en mémoire, le demander directement (geste utilisateur actif)
       if (!rootHandle) {
         try {
           rootHandle = await (window as any).showDirectoryPicker({
@@ -439,9 +438,8 @@ export async function saveProgramFile(
             await storeDirectoryHandle(rootHandle);
           }
         } catch (pickErr: any) {
-          // L'utilisateur a annulé ou la sous-fenêtre iframe a bloqué le picker
           if (pickErr?.name !== 'AbortError') {
-            console.warn('showDirectoryPicker prompt error:', pickErr);
+            console.warn('showDirectoryPicker prompt notice:', pickErr);
           }
         }
       }
@@ -476,7 +474,7 @@ export async function saveProgramFile(
         const progDir = await faabPlanDir.getDirectoryHandle(safeProgFolder, { create: true });
 
         // C. Fichier cible : create: true + keepExistingData: false
-        // RÈGLE : Écrase et remplace le fichier le plus ancien sans renommer ni ajouter (1), (2)...
+        // RÈGLE : Écrase et remplace le fichier le plus ancien sans renommer ni ajouter 1, 2, 3...
         const fileHandle = await progDir.getFileHandle(cleanName, { create: true });
         const writable = await fileHandle.createWritable({ keepExistingData: false });
         await writable.write(blob);
@@ -490,73 +488,91 @@ export async function saveProgramFile(
         };
       }
     } catch (fsErr: any) {
-      console.warn('Écriture directe File System Access non autorisée ou échouée:', fsErr);
+      console.warn('Écriture directe File System Access non autorisée ou restreinte:', fsErr);
     }
   }
 
-  // 2. TENTATIVE VIA showSaveFilePicker (permet à l'OS d'écraser le fichier sans ajouter "(1)", "(2)")
-  if (typeof (window as any).showSaveFilePicker === 'function') {
-    try {
-      const ext = cleanName.includes('.') ? '.' + cleanName.split('.').pop() : '';
-      const saveHandle = await (window as any).showSaveFilePicker({
-        suggestedName: cleanName,
-        types: [
-          {
-            description: cleanName.endsWith('.json')
-              ? 'Fichier JSON FAAB PLAN'
-              : cleanName.endsWith('.csv')
-              ? 'Fichier CSV FAAB PLAN'
-              : 'Fichier PDF FAAB PLAN',
-            accept: { [mimeType.split(';')[0]]: [ext || '.bin'] }
-          }
-        ]
-      });
-
-      if (saveHandle) {
-        const writable = await saveHandle.createWritable({ keepExistingData: false });
-        await writable.write(blob);
-        await writable.close();
-
-        return {
-          success: true,
-          mode: 'savepicker',
-          path: logicalPath,
-          fileName: cleanName
-        };
-      }
-    } catch (saveErr: any) {
-      if (saveErr?.name !== 'AbortError') {
-        console.warn('showSaveFilePicker error:', saveErr);
-      }
-    }
-  }
-
-  // 3. FALLBACK : Téléchargement navigateur direct
+  // 2. TÉLÉCHARGEMENT COMPATIBLE MACBOOK (macOS Safari, Archive Utility, Chrome Mac) :
+  // Génère et télécharge l'arborescence exacte demandée :
+  // faab-plan/
+  //   └── {Nom du Programme}/
+  //         ├── {Nom du Fichier} (version la plus récente, écrasant la précédente)
+  //         └── (tous les autres fichiers JSON, CSV, PDF enregistrés pour ce programme)
+  //
+  // Sur MacBook :
+  // - Safari (qui décompresse automatiquement les archives téléchargées) ouvre immédiatement le dossier
+  //   racine "faab-plan" et le sous-dossier "{Nom du Programme}" contenant les fichiers.
+  // - En cas de nouveau téléchargement du même programme, le fichier existant est écrasé et remplacé
+  //   SANS JAMAIS générer les suffixes doublons " 1", " 2", " 3"...
+  // - Si le nom du programme est différent, un nouveau sous-dossier au nom de ce programme est créé dans "faab-plan/".
+  // - Tous les types d'exports (JSON, CSV, PDF) partagent ce même sous-dossier de programme.
   try {
-    const url = URL.createObjectURL(blob);
+    const zip = new JSZip();
+    const rootDir = zip.folder('faab-plan');
+    const progDir = rootDir?.folder(safeProgFolder);
+
+    // Rassemble tous les fichiers enregistrés dans le VFS pour ce programme (JSON, CSV, PDF)
+    const existingProgFiles = await getVfsFilesForProgram(safeProgFolder);
+    const fileMap = new Map<string, Blob>();
+    for (const f of existingProgFiles) {
+      fileMap.set(f.fileName, f.blob);
+    }
+    // S'assurer que le fichier en cours d'enregistrement est la version la plus fraîche
+    fileMap.set(cleanName, blob);
+
+    fileMap.forEach((fBlob, fName) => {
+      progDir?.file(fName, fBlob);
+    });
+
+    const zipBlob = await zip.generateAsync({
+      type: 'blob',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 }
+    });
+
+    const zipFileName = `faab-plan_${safeProgFolder}.zip`;
+    const zipUrl = URL.createObjectURL(zipBlob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = cleanName;
+    a.href = zipUrl;
+    a.download = zipFileName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    setTimeout(() => URL.revokeObjectURL(zipUrl), 3000);
 
     return {
       success: true,
       mode: 'download',
       path: logicalPath,
       fileName: cleanName,
-      warning:
-        "Téléchargement direct du navigateur effectué. Pour que le dossier « faab-plan/{programme} » se crée automatiquement sur votre disque et écrase directement les anciens fichiers sans créer de doublons (1, 2...), ouvrez l'application dans un onglet autonome (Chrome autorise l'accès disque direct)."
+      warning: `Dossier « faab-plan/${safeProgFolder}/ » créé et actualisé : ${cleanName} enregistré et écrasé sans doublon (1, 2...).`
     };
-  } catch (err: any) {
-    return {
-      success: false,
-      mode: 'download',
-      path: logicalPath,
-      fileName: cleanName
-    };
+  } catch (zipErr) {
+    console.warn('Erreur génération ZIP faab-plan:', zipErr);
+    // Dernier recours : téléchargement autonome
+    try {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = cleanName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      return {
+        success: true,
+        mode: 'download',
+        path: logicalPath,
+        fileName: cleanName
+      };
+    } catch {
+      return {
+        success: false,
+        mode: 'download',
+        path: logicalPath,
+        fileName: cleanName
+      };
+    }
   }
 }
 

@@ -70,6 +70,32 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const isEn = language === 'EN';
   const t = translations[language];
   const containerRef = useRef<HTMLDivElement>(null);
+  const bgVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Animation d'introduction de 5 secondes à l'atterrissage sur la plateforme :
+  // - 0s à 3s : 'video_only' (l'animation vidéo plein écran démarre)
+  // - 3s à 5s : 'logo_visible' (le nouveau logo apparaît à la 3e seconde dans l'animation)
+  // - Dès la 5e seconde : 'completed' (la page d'accueil apparaît et la vidéo passe en arrière-plan)
+  const [introPhase, setIntroPhase] = useState<'video_only' | 'logo_visible' | 'completed'>('video_only');
+
+  useEffect(() => {
+    if (bgVideoRef.current) {
+      bgVideoRef.current.play().catch(() => {
+        // Autoplay muted handled by browser
+      });
+    }
+    const logoTimer = window.setTimeout(() => {
+      setIntroPhase('logo_visible');
+    }, 3000);
+    const completeTimer = window.setTimeout(() => {
+      setIntroPhase('completed');
+    }, 5000);
+
+    return () => {
+      window.clearTimeout(logoTimer);
+      window.clearTimeout(completeTimer);
+    };
+  }, []);
 
   // États PWA ("F-PLLAN") & Mise à jour sur la page d'accueil
   const [deferredPrompt, setDeferredPrompt] = useState<any>(() =>
@@ -735,10 +761,62 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`flex flex-col overflow-x-hidden ${
+      className={`relative flex flex-col overflow-x-hidden ${
         isDark ? 'text-slate-100' : 'text-slate-900'
       }`}
     >
+      {/* VIDÉO D'ANIMATION : Couvre tout l'écran (z-[9999], masquant le header et les sections) pendant 5 secondes (0s-5s), apparition du logo PNG transparent à la 3e seconde (3s-5s), puis passage en arrière-plan (z-0) sur la page d'accueil à la 5e seconde */}
+      <div
+        className={`fixed inset-0 pointer-events-none overflow-hidden transition-all duration-700 ${
+          introPhase !== 'completed' ? 'z-[9999] bg-black' : 'z-0 bg-black'
+        }`}
+        aria-hidden="true"
+      >
+        <video
+          ref={bgVideoRef}
+          src="./assets/aistudio/smoke-intro_6dd80e7b.mp4"
+          autoPlay
+          loop
+          muted
+          playsInline
+          preload="auto"
+          className="w-full h-full object-cover"
+        />
+        {/* Voile léger de lisibilité actif uniquement lorsque la vidéo est en arrière-plan de la page d'accueil (après la 5e seconde) */}
+        <div
+          className={`absolute inset-0 transition-opacity duration-700 ${
+            introPhase === 'completed'
+              ? isDark
+                ? 'bg-slate-950/60 opacity-100'
+                : 'bg-white/65 opacity-100'
+              : 'opacity-0'
+          }`}
+        />
+
+        {/* Apparition du nouveau logo PNG transparent à la 3e seconde des 5 secondes dans l'animation vidéo (sans fond blanc) */}
+        <div
+          className={`absolute inset-0 flex flex-col items-center justify-center p-6 transition-all duration-700 ease-out ${
+            introPhase === 'logo_visible'
+              ? 'opacity-100 scale-100'
+              : 'opacity-0 scale-75'
+          }`}
+        >
+          <img
+            src="./assets/aistudio/logo_28c10065.png"
+            alt="FAAB PLAN"
+            className="w-48 h-48 sm:w-64 sm:h-64 md:w-72 md:h-72 object-contain drop-shadow-[0_0_35px_rgba(144,213,255,0.85)] select-none"
+          />
+        </div>
+      </div>
+
+      {/* CONTENU DE LA PAGE D'ACCUEIL : Apparaît à la 5e seconde au-dessus de la vidéo en arrière-plan */}
+      <div
+        className={`relative z-10 flex flex-col transition-opacity duration-700 ${
+          introPhase === 'completed'
+            ? 'opacity-100'
+            : 'opacity-0 pointer-events-none select-none'
+        }`}
+      >
       {/* SECTION 1: PRESENTATION GENERALE DE LA PLATEFORME */}
       <section
         id="section-presentation"
@@ -852,8 +930,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     : 'bg-gradient-to-br from-[#FFFFFF] via-[#90D5FF]/25 to-[#90D5FF]/40 border-[#90D5FF]'
                 }`}
               >
-                <div className="bg-white p-3 rounded-3xl shadow-md border-2 border-[#90D5FF] mb-4">
-                  <AppLogo className="w-40 h-40 sm:w-48 sm:h-48 md:w-52 md:h-52" />
+                <div className="mb-4 flex items-center justify-center">
+                  <AppLogo className="w-40 h-40 sm:w-48 sm:h-48 md:w-52 md:h-52 drop-shadow-[0_10px_25px_rgba(2,132,199,0.35)]" />
                 </div>
                 <div className="text-xs font-black uppercase tracking-widest text-[#0284c7]">
                   {isEn
@@ -892,8 +970,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 : 'bg-gradient-to-r from-sky-50 via-white to-sky-50 border-[#0284c7] text-slate-900'
             }`}
           >
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div className="space-y-1.5 min-w-0 flex-1">
+            <div className="flex flex-col gap-4">
+              <div className="space-y-2 w-full min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#0c4a6e] text-[#90D5FF] text-[10px] sm:text-[11px] font-black uppercase tracking-wider">
                     <Download className="w-3.5 h-3.5 shrink-0" />
@@ -903,14 +981,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                         : 'Application PWA · Nom installé : « F-PLLAN »'}
                     </span>
                   </span>
-                  <span className="text-[11px] font-extrabold text-emerald-600 dark:text-emerald-400">
+                  <span className="text-[11px] sm:text-xs font-extrabold text-emerald-600 dark:text-emerald-400">
                     {isEn
                       ? '• MacBook, Windows, Linux, iPhone, iPad & Android'
                       : '• MacBook, Windows, Linux, iPhone, iPad & Android'}
                   </span>
                 </div>
                 <h3
-                  className={`text-sm sm:text-base font-black leading-snug break-words ${
+                  className={`text-sm sm:text-base md:text-lg font-black leading-snug break-words ${
                     isDark ? 'text-white' : 'text-[#0c4a6e]'
                   }`}
                 >
@@ -919,7 +997,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     : 'Télécharger & Installer l’application « F-PLLAN » sur votre Ordinateur, Tablette ou Téléphone'}
                 </h3>
                 <p
-                  className={`text-xs leading-relaxed break-words ${
+                  className={`text-xs sm:text-sm leading-relaxed break-words ${
                     isDark ? 'text-slate-300' : 'text-slate-600'
                   }`}
                 >
@@ -930,12 +1008,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
 
               {/* Boutons de téléchargement par plateforme + Bouton en icône "Mise à jour" */}
-              <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 shrink-0">
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-center gap-2.5 w-full pt-2 border-t border-sky-200/70 dark:border-slate-800">
                 {/* 1. Ordinateurs : MacBook / Windows / Linux */}
                 <button
                   type="button"
                   onClick={() => handleInstallPwaPlatform('desktop')}
-                  className="inline-flex items-center gap-2 px-3 sm:px-3.5 py-2.5 rounded-xl bg-[#0c4a6e] hover:bg-[#075985] text-white text-xs font-black shadow-sm transition-all cursor-pointer border border-[#90D5FF]/50"
+                  className="inline-flex items-center justify-center sm:justify-start gap-2 px-3.5 py-2.5 rounded-xl bg-[#0c4a6e] hover:bg-[#075985] text-white text-xs font-black shadow-sm transition-all cursor-pointer border border-[#90D5FF]/50 w-full xl:w-auto"
                 >
                   <Monitor className="w-4 h-4 text-[#90D5FF] shrink-0" />
                   <span className="text-left leading-tight">
@@ -949,7 +1027,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <button
                   type="button"
                   onClick={() => handleInstallPwaPlatform('android')}
-                  className="inline-flex items-center gap-2 px-3 sm:px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-sm transition-all cursor-pointer"
+                  className="inline-flex items-center justify-center sm:justify-start gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-sm transition-all cursor-pointer w-full xl:w-auto"
                 >
                   <Smartphone className="w-4 h-4 text-white shrink-0" />
                   <span className="text-left leading-tight">
@@ -964,7 +1042,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   type="button"
                   onClick={() => handleInstallPwaPlatform('apple')}
                   aria-expanded={activeInstallHelper === 'apple'}
-                  className={`inline-flex items-center gap-2 px-3 sm:px-3.5 py-2.5 rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer border ${
+                  className={`inline-flex items-center justify-center sm:justify-start gap-2 px-3.5 py-2.5 rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer border w-full xl:w-auto ${
                     activeInstallHelper === 'apple'
                       ? 'bg-[#90D5FF] text-slate-950 border-[#0c4a6e] ring-2 ring-[#0284c7]'
                       : isDark
@@ -980,7 +1058,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </span>
                 </button>
 
-                {/* 4. Bouton en icône "Mise à jour" pour recharger l'application */}
+                {/* 4. Bouton en icône "Mise à jour" (uniquement l'icône, sans intitulé) pour recharger l'application */}
                 <button
                   type="button"
                   onClick={handleReloadAndUpdateApp}
@@ -990,14 +1068,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       : 'Mise à jour : Recharger l’application F-PLLAN pour appliquer la dernière version'
                   }
                   aria-label={isEn ? 'Update App' : 'Mise à jour'}
-                  className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black shadow-sm transition-all cursor-pointer shrink-0"
+                  className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-sm transition-all cursor-pointer shrink-0 xl:ml-auto"
                 >
                   <RefreshCw
                     className={`w-4 h-4 shrink-0 ${
                       isUpdatingApp ? 'animate-spin' : ''
                     }`}
                   />
-                  <span>{isEn ? 'Update' : 'Mise à jour'}</span>
                 </button>
               </div>
             </div>
@@ -2728,6 +2805,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </div>
       </section>
+      </div>
     </div>
   );
 };

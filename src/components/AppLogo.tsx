@@ -11,9 +11,10 @@ export const AppLogo: React.FC<AppLogoProps> = ({
 }) => {
   const [srcIndex, setSrcIndex] = useState(0);
   const sources = [
-    './logo.png?v=3',
-    './favicon.png?v=3',
-    './assets/aistudio/logo_de_Faab_Plan_aa9d6e11.png?v=3'
+    './assets/aistudio/logo_28c10065.png',
+    './logo.png?v=5',
+    './favicon.png?v=5',
+    './assets/aistudio/logo_56f6f572.svg'
   ];
 
   if (srcIndex < sources.length) {
