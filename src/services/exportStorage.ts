@@ -284,7 +284,9 @@ export interface SaveProgramFileOptions {
 export interface SaveProgramFileResult {
   success: boolean;
   mode: 'directory' | 'savepicker' | 'download';
+  method?: 'directory' | 'server' | 'savepicker' | 'download' | string;
   path: string;
+  relativePath?: string;
   fileName: string;
   warning?: string;
 }

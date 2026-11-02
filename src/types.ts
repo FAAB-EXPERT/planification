@@ -208,6 +208,7 @@ export interface Task {
   raciC?: string;
   raciI?: string;
   livrable?: string;
+  bailleur?: string;
   budget?: number; // Stored in base FCFA
   validated?: boolean;
   antecedent?: string;
@@ -369,6 +370,7 @@ export interface CategorizedActor {
   axeId: string; // 'ALL' or specific Axe ID
   projectId: string; // 'ALL' or specific Project ID
   roleOrFunction: string;
+  titulaireName?: string;
   organization: string;
   department: string;
   email: string;

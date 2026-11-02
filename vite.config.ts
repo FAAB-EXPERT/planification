@@ -204,6 +204,11 @@ export default defineConfig(() => {
           const notFoundPath = path.join(distDir, '404.html');
           const noJekyllPath = path.join(distDir, '.nojekyll');
 
+          // Ensure dist directory exists
+          if (!fs.existsSync(distDir)) {
+            fs.mkdirSync(distDir, { recursive: true });
+          }
+
           // Ensure 404.html fallback exists for GitHub Pages SPA routing
           if (fs.existsSync(indexPath)) {
             fs.copyFileSync(indexPath, notFoundPath);

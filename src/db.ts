@@ -489,7 +489,7 @@ export const initialDossiers: Dossier[] = [
                 actualStartDate: '2026-01-12',
                 actualEndDate: '2026-02-25',
                 status: 'Terminé',
-                assignee: 'KOFFIE Fabien Michael, Kouassi Marc',
+                assignee: 'Coordonnateur Général (UGP), Architecte SI & Lead Tech',
                 autorite: 'Ministère de Tutelle & COPIL',
                 consulte: 'Collectif des Bénéficiaires & Usagers Finaux',
                 informe: 'Banque Mondiale & Partenaires Financiers (PTF)',
@@ -509,7 +509,7 @@ export const initialDossiers: Dossier[] = [
                 actualStartDate: '2026-03-05',
                 actualEndDate: '2026-03-05',
                 status: 'Terminé',
-                assignee: 'KOFFIE Fabien Michael',
+                assignee: 'Coordonnateur Général (UGP)',
                 autorite: 'Ministère de Tutelle & COPIL',
                 consulte: 'Banque Mondiale & Partenaires Financiers (PTF)',
                 informe: 'Collectif des Bénéficiaires & Usagers Finaux',
@@ -529,8 +529,8 @@ export const initialDossiers: Dossier[] = [
                 actualStartDate: '2026-03-14',
                 actualEndDate: '2026-05-18',
                 status: 'Terminé',
-                assignee: 'Consortium Tech & Cabinet Ingénierie (Prestataire), Kouassi Marc',
-                autorite: 'KOFFIE Fabien Michael',
+                assignee: 'Consortium Tech & Cabinet Ingénierie (Prestataire), Architecte SI & Lead Tech',
+                autorite: 'Coordonnateur Général (UGP)',
                 consulte: 'Collectif des Bénéficiaires & Usagers Finaux',
                 informe: 'Ministère de Tutelle & COPIL',
                 responsabilite: 'Lead Product Designer',
@@ -550,7 +550,7 @@ export const initialDossiers: Dossier[] = [
                 actualEndDate: '',
                 status: 'En cours',
                 assignee: 'Consortium Tech & Cabinet Ingénierie (Prestataire)',
-                autorite: 'KOFFIE Fabien Michael',
+                autorite: 'Coordonnateur Général (UGP)',
                 consulte: 'Autorité Nationale de Régulation & Contrôle',
                 informe: 'Banque Mondiale & Partenaires Financiers (PTF)',
                 responsabilite: 'Ingénieur DevOps Senior',
@@ -570,8 +570,8 @@ export const initialDossiers: Dossier[] = [
                 actualEndDate: '',
                 status: 'Bloqué',
                 manualBlocked: true,
-                assignee: 'Kouassi Marc, Cellule Data & Sécurité UGP',
-                autorite: 'KOFFIE Fabien Michael',
+                assignee: 'Architecte SI & Lead Tech, Cellule Data & Sécurité UGP',
+                autorite: 'Coordonnateur Général (UGP)',
                 consulte: 'Autorité Nationale de Régulation & Contrôle',
                 informe: 'Ministère de Tutelle & COPIL',
                 responsabilite: 'Ingénieur Data',
@@ -610,7 +610,7 @@ export const initialDossiers: Dossier[] = [
                 actualStartDate: '',
                 actualEndDate: '',
                 status: 'À faire',
-                assignee: 'KOFFIE Fabien Michael',
+                assignee: 'Coordonnateur Général (UGP)',
                 autorite: 'Ministère de Tutelle & COPIL',
                 consulte: 'Banque Mondiale & Partenaires Financiers (PTF)',
                 informe: 'Collectif des Bénéficiaires & Usagers Finaux',
@@ -636,8 +636,8 @@ export const initialDossiers: Dossier[] = [
                 actualStartDate: '2026-02-03',
                 actualEndDate: '2026-03-28',
                 status: 'Terminé',
-                assignee: 'Bamba Aminata (DRH UGP)',
-                autorite: 'KOFFIE Fabien Michael',
+                assignee: 'Directrice des Ressources Humaines (DRH)',
+                autorite: 'Coordonnateur Général (UGP)',
                 consulte: 'Collectif des Bénéficiaires & Usagers Finaux',
                 informe: 'Ministère de Tutelle & COPIL',
                 responsabilite: 'Responsable Formation',
@@ -657,8 +657,8 @@ export const initialDossiers: Dossier[] = [
                 actualEndDate: '',
                 status: 'En cours',
                 assignee: 'Cabinet Partenaire & Formateurs (Prestataire)',
-                autorite: 'Bamba Aminata (DRH UGP)',
-                consulte: 'KOFFIE Fabien Michael',
+                autorite: 'Directrice des Ressources Humaines (DRH)',
+                consulte: 'Coordonnateur Général (UGP)',
                 informe: 'Banque Mondiale & Partenaires Financiers (PTF), Collectif des Bénéficiaires & Usagers Finaux',
                 responsabilite: 'Expert Formateur PMP/GAR',
                 livrable: '120 cadres et chefs de projets certifiés',
@@ -689,7 +689,7 @@ export const initialDossiers: Dossier[] = [
                 actualEndDate: '2026-03-14',
                 status: 'Terminé',
                 assignee: 'Cellule Data & Sécurité UGP',
-                autorite: 'KOFFIE Fabien Michael',
+                autorite: 'Coordonnateur Général (UGP)',
                 consulte: 'Autorité Nationale de Régulation & Contrôle',
                 informe: 'Ministère de Tutelle & COPIL',
                 responsabilite: 'Auditeur Qualité Principal',
@@ -708,7 +708,7 @@ export const initialDossiers: Dossier[] = [
                 actualStartDate: '2026-03-25',
                 actualEndDate: '',
                 status: 'En cours',
-                assignee: 'KOFFIE Fabien Michael, Bamba Aminata (DRH UGP)',
+                assignee: 'Coordonnateur Général (UGP), Directrice des Ressources Humaines (DRH)',
                 autorite: 'Ministère de Tutelle & COPIL',
                 consulte: 'Banque Mondiale & Partenaires Financiers (PTF)',
                 informe: 'Collectif des Bénéficiaires & Usagers Finaux',
@@ -753,7 +753,7 @@ export const initialDossiers: Dossier[] = [
                 actualStartDate: '2025-03-04',
                 actualEndDate: '2025-05-28',
                 status: 'Terminé',
-                assignee: 'Commission des Marchés UGP, KOFFIE Fabien Michael',
+                assignee: 'Spécialiste Passation des Marchés, Coordonnateur Général (UGP)',
                 autorite: 'Ministère de Tutelle & COPIL',
                 consulte: 'Banque Mondiale & Partenaires Financiers (PTF)',
                 informe: 'Collectif des Bénéficiaires & Usagers Finaux',
@@ -774,7 +774,7 @@ export const initialDossiers: Dossier[] = [
                 actualEndDate: '2025-11-15',
                 status: 'Terminé',
                 assignee: 'Consortium Tech & Cabinet Ingénierie (Prestataire)',
-                autorite: 'KOFFIE Fabien Michael',
+                autorite: 'Coordonnateur Général (UGP)',
                 consulte: 'Autorité Nationale de Régulation & Contrôle',
                 informe: 'Collectif des Bénéficiaires & Usagers Finaux',
                 responsabilite: 'Chef de Service Logistique',
@@ -857,13 +857,53 @@ const SEED_ACTOR_DETAILS: Record<
   string,
   Partial<CategorizedActor>
 > = {
+  'coordonnateur général (ugp)': {
+    category: 'Interne',
+    roleOrFunction: 'Coordonnateur Général & Architecte du Pilotage Stratégique (PMO / GAR)',
+    organization: 'Direction Générale de la Stratégie & Pilotage des Projets (UGP)',
+    department: 'Coordination Générale & Unité de Gestion (UGP / PMO)',
+    email: 'coordonnateur.pmo@ugp-programme.ci',
+    phone: '+225 07 48 08 27 39',
+    address: 'Siège UGP — Plateau, Abidjan, Côte d’Ivoire',
+    governanceInstance: 'COPIL & COPROJ'
+  },
+  'architecte si & lead tech': {
+    category: 'Interne',
+    roleOrFunction: 'Architecte Urbaniste SI & Lead Technique UGP',
+    organization: 'Direction Générale de la Stratégie & Pilotage des Projets (UGP)',
+    department: 'Direction Technique & Architecture Numérique',
+    email: 'architecte.si@ugp-programme.ci',
+    phone: '+225 07 08 45 12 90',
+    address: 'Abidjan — Cocody Riviera 3, Côte d’Ivoire',
+    governanceInstance: 'COPROJ'
+  },
+  'directrice des ressources humaines (drh)': {
+    category: 'Interne',
+    roleOrFunction: 'Directrice des Ressources Humaines & Conduite du Changement',
+    organization: 'Direction Générale de la Stratégie & Pilotage des Projets (UGP)',
+    department: 'Département Capital Humain & Renforcement des Capacités',
+    email: 'drh@ugp-programme.ci',
+    phone: '+225 05 04 33 21 10',
+    address: 'Abidjan — Plateau, Avenue Lamblin',
+    governanceInstance: 'COPROJ'
+  },
+  'spécialiste passation des marchés': {
+    category: 'Interne',
+    roleOrFunction: 'Spécialiste Principal en Passation des Marchés (SPM)',
+    organization: 'Direction des Opérations & Projets (UGP)',
+    department: 'Cellule Passation des Marchés & Contrats Publics',
+    email: 'spm.marches@ugp-programme.ci',
+    phone: '+225 27 20 25 88 99',
+    address: 'Siège UGP — Abidjan, Côte d’Ivoire',
+    governanceInstance: 'COPROJ'
+  },
   'koffie fabien michael': {
     category: 'Interne',
     roleOrFunction: 'Coordonnateur Général & Architecte du Pilotage Stratégique (PMO / GAR)',
     organization: 'Direction Générale de la Stratégie & Pilotage des Projets (UGP)',
     department: 'Coordination Générale & Unité de Gestion (UGP / PMO)',
-    email: 'fabien.frikupgeneration@gmail.com',
-    phone: '+225 07 48 08 27 39',
+    email: 'coordonnateur.ugp@programme-pilote.org',
+    phone: '+225 27 20 22 11 00',
     address: 'Siège UGP — Plateau, Abidjan, Côte d’Ivoire',
     governanceInstance: 'COPIL & COPROJ'
   },
@@ -969,6 +1009,79 @@ const SEED_ACTOR_DETAILS: Record<
   }
 };
 
+export const sanitizePosteName = (raw?: string): string => {
+  if (!raw) return '';
+  return raw
+    .replace(/KOFFIE\s+Fabien\s+Michael/gi, 'Coordonnateur Général (UGP)')
+    .replace(/KOFFIE\s+FABIEN\s+MICHAEL/gi, 'Coordonnateur Général (UGP)')
+    .replace(/KOFFIE/gi, 'Coordonnateur Général (UGP)')
+    .replace(/Kouassi\s+Marc/gi, 'Architecte SI & Lead Tech')
+    .replace(/Bamba\s+Aminata\s+\(DRH\s+UGP\)/gi, 'Directrice des Ressources Humaines (DRH)')
+    .replace(/Bamba\s+Aminata/gi, 'Directrice des Ressources Humaines (DRH)')
+    .replace(/Commission\s+des\s+Marchés\s+UGP/gi, 'Spécialiste Passation des Marchés');
+};
+
+export const getActorTitulaireName = (
+  actor: { name?: string; roleOrFunction?: string; titulaireName?: string },
+  userProfile?: UserProfile
+): string => {
+  if (actor.titulaireName && actor.titulaireName.trim()) {
+    return actor.titulaireName.trim();
+  }
+  const lower = (actor.name || '').toLowerCase().trim();
+  const lowerRole = (actor.roleOrFunction || '').toLowerCase().trim();
+
+  if (
+    lower.includes('coordonnateur') ||
+    lowerRole.includes('coordonnateur') ||
+    lower.includes('pmo')
+  ) {
+    return userProfile?.fullName || 'KOFFIE Fabien Michael';
+  }
+  if (
+    lower.includes('architecte') ||
+    lowerRole.includes('architecte') ||
+    lower.includes('lead tech')
+  ) {
+    return 'Kouassi Marc';
+  }
+  if (
+    lower.includes('ressources humaines') ||
+    lower.includes('drh') ||
+    lowerRole.includes('ressources humaines') ||
+    lowerRole.includes('drh')
+  ) {
+    return 'Bamba Aminata (DRH UGP)';
+  }
+  if (lower.includes('bénéficiaire') || lowerRole.includes('bénéficiaire')) {
+    return 'Collectif des Bénéficiaires & Usagers Finaux';
+  }
+  if (
+    lower.includes('marché') ||
+    lower.includes('passation') ||
+    lowerRole.includes('marché')
+  ) {
+    return 'Commission des Marchés UGP';
+  }
+  if (
+    lower.includes('data') ||
+    lower.includes('sécurité') ||
+    lowerRole.includes('data')
+  ) {
+    return 'Équipe Ingénierie Data & Cybersécurité';
+  }
+  if (lower.includes('tutelle') || lower.includes('copil')) {
+    return 'Ministère de Tutelle & Présidence COPIL';
+  }
+  if (lower.includes('banque') || lower.includes('bailleur') || lower.includes('ptf')) {
+    return 'Banque Mondiale & Partenaires Financiers (PTF)';
+  }
+  if (lower.includes('consortium') || lower.includes('prestataire')) {
+    return 'Consortium Tech & Cabinet Ingénierie';
+  }
+  return actor.name || '';
+};
+
 /**
  * Construit et synchronise la liste des acteurs classés dans les 5 catégories obligatoires
  * pour un Programme donné (ventilés par Axe et par Projet), en dépendance à 100 % avec l'onglet RACI.
@@ -987,8 +1100,10 @@ export function ensureDossierCategorizedActors(
   const existingById = new Map<string, CategorizedActor>();
   existing.forEach(item => {
     if (item && item.name) {
-      existingByKey.set(item.name.trim().toLowerCase(), item);
-      if (item.id) existingById.set(item.id, item);
+      const sanitizedName = sanitizePosteName(item.name);
+      const cleanItem = { ...item, name: sanitizedName };
+      existingByKey.set(sanitizedName.trim().toLowerCase(), cleanItem);
+      if (item.id) existingById.set(item.id, cleanItem);
     }
   });
 
@@ -999,7 +1114,8 @@ export function ensureDossierCategorizedActors(
 
   const splitNames = (raw?: string): string[] => {
     if (!raw) return [];
-    return raw
+    const sanitized = sanitizePosteName(raw);
+    return sanitized
       .split(',')
       .map(s => s.trim())
       .filter(
@@ -1147,6 +1263,18 @@ export function ensureDossierCategorizedActors(
           : inferredCat === 'Partenaire Financier'
           ? 'Chargé de Programme & Avis de Non-Objection (ANO)'
           : 'Représentant des Bénéficiaires & Usagers Finaux'),
+      titulaireName:
+        saved?.titulaireName ||
+        seedMeta.titulaireName ||
+        (isPrincipalUser
+          ? userProfile.fullName
+          : getActorTitulaireName(
+              {
+                name: raciInfo.displayName,
+                roleOrFunction: saved?.roleOrFunction || seedMeta.roleOrFunction
+              },
+              userProfile
+            )),
       organization:
         saved?.organization ||
         seedMeta.organization ||
@@ -1527,57 +1655,49 @@ export async function loadStateFromDB(): Promise<AppPersistedState> {
       ? loaded.dossiers
       : initial.dossiers;
 
-  // One-time migration for pre-existing IndexedDB states so the initial seed tasks have full RACI (R, A, C, I) across all 5 categories, while keeping any user edits/deletions 100% permanent afterwards
-  let needsSeedUpgrade = false;
-  try {
-    if (!localStorage.getItem('faab_raci_seed_v3')) {
-      needsSeedUpgrade = true;
-      localStorage.setItem('faab_raci_seed_v3', '1');
-    }
-  } catch {
-    // ignore storage errors
-  }
-
-  const seedTaskMap = new Map<string, any>();
-  if (needsSeedUpgrade) {
-    initialDossiers.forEach(initDos => {
-      (initDos.axes || []).forEach(ax => {
-        (ax.projects || []).forEach(pr => {
-          (pr.tasks || []).forEach(tk => {
-            seedTaskMap.set(tk.id, tk);
-          });
-        });
-      });
-    });
-  }
+  const migrateNamesToPostes = (raw?: string): string => {
+    if (!raw) return '';
+    return sanitizePosteName(raw);
+  };
 
   // Ensure every programme container has its categorizedActors, customDocsData and actorProfiles
   const dossiers: Dossier[] = rawDossiers.map(d => {
-    const upgradedAxes = needsSeedUpgrade
-      ? (d.axes || []).map(ax => ({
-          ...ax,
-          projects: (ax.projects || []).map(pr => ({
-            ...pr,
-            tasks: (pr.tasks || []).map(tk => {
-              const seedTk = seedTaskMap.get(tk.id);
-              if (seedTk && !tk.autorite && !tk.consulte && !tk.informe) {
-                return {
-                  ...tk,
-                  assignee: seedTk.assignee,
-                  autorite: seedTk.autorite,
-                  consulte: seedTk.consulte,
-                  informe: seedTk.informe
-                };
-              }
-              return tk;
-            })
-          }))
+    const upgradedAxes = (d.axes || []).map(ax => ({
+      ...ax,
+      projects: (ax.projects || []).map(pr => ({
+        ...pr,
+        tasks: (pr.tasks || []).map(tk => ({
+          ...tk,
+          assignee: migrateNamesToPostes(tk.assignee),
+          raciR: migrateNamesToPostes(tk.raciR),
+          autorite: migrateNamesToPostes(tk.autorite),
+          raciA: migrateNamesToPostes(tk.raciA),
+          consulte: migrateNamesToPostes(tk.consulte),
+          raciC: migrateNamesToPostes(tk.raciC),
+          informe: migrateNamesToPostes(tk.informe),
+          raciI: migrateNamesToPostes(tk.raciI)
         }))
-      : d.axes || [];
+      }))
+    }));
+
+    const cleanCategorizedActors = (d.categorizedActors || []).map(act => {
+      const sanitizedName = migrateNamesToPostes(act.name);
+      return {
+        ...act,
+        name: sanitizedName,
+        titulaireName:
+          act.titulaireName ||
+          getActorTitulaireName(
+            { ...act, name: sanitizedName },
+            mergedUserProfile
+          )
+      };
+    });
 
     const upgradedDossier: Dossier = {
       ...d,
-      axes: upgradedAxes
+      axes: upgradedAxes,
+      categorizedActors: cleanCategorizedActors
     };
 
     return {

@@ -72,7 +72,8 @@ import {
   saveAppStateToIDB,
   setActiveUserStorageUid,
   ensureDossierCategorizedActors,
-  renameActorInDossierTasks
+  renameActorInDossierTasks,
+  sanitizePosteName
 } from './db';
 import { translations, formatCurrency } from './i18n';
 import { generateDirectWhitePDF } from './pdfExport';
@@ -350,7 +351,31 @@ export function App() {
           });
         }
         if (Array.isArray(saved.dossiers) && saved.dossiers.length > 0) {
-          setDossiers(saved.dossiers);
+          const clean = (saved.dossiers as Dossier[]).map(d => ({
+            ...d,
+            axes: (d.axes || []).map(a => ({
+              ...a,
+              projects: (a.projects || []).map(p => ({
+                ...p,
+                tasks: (p.tasks || []).map(t => ({
+                  ...t,
+                  assignee: sanitizePosteName(t.assignee),
+                  raciR: sanitizePosteName(t.raciR),
+                  autorite: sanitizePosteName(t.autorite),
+                  raciA: sanitizePosteName(t.raciA),
+                  consulte: sanitizePosteName(t.consulte),
+                  raciC: sanitizePosteName(t.raciC),
+                  informe: sanitizePosteName(t.informe),
+                  raciI: sanitizePosteName(t.raciI)
+                }))
+              }))
+            })),
+            categorizedActors: (d.categorizedActors || []).map(act => ({
+              ...act,
+              name: sanitizePosteName(act.name)
+            }))
+          }));
+          setDossiers(clean);
         } else {
           setDossiers(JSON.parse(JSON.stringify(initialDossiers)));
         }
@@ -1657,7 +1682,7 @@ export function App() {
                   startDate: todayISO,
                   endDate: todayISO,
                   status: 'En cours',
-                  assignee: userProfile.fullName || 'Chef de Projet',
+                  assignee: userProfile.role || 'Coordonnateur Général (UGP)',
                   autorite: 'Comité de Pilotage (COPIL)',
                   consulte: 'Experts Techniques',
                   informe: 'Parties Prenantes',
@@ -1812,7 +1837,7 @@ export function App() {
       status: 'À faire',
       assignee:
         userProfile.intervenesAsProgramActor !== false
-          ? userProfile.fullName || ''
+          ? userProfile.role || 'Coordonnateur Général (UGP)'
           : '',
       autorite: '',
       consulte: '',
@@ -2661,7 +2686,7 @@ export function App() {
               </span>
               <Layers className="w-3 h-3 sm:w-4 sm:h-4 text-[#0284c7] shrink-0" />
             </div>
-            <div className="mt-0.5 sm:mt-2 text-xs sm:text-2xl font-black text-slate-900 dark:text-white leading-tight truncate">
+            <div className="mt-0.5 sm:mt-1.5 text-xs sm:text-base md:text-lg lg:text-xl font-black text-slate-900 dark:text-white leading-tight truncate">
               {(activeDossier.axes || []).length} Axes /{' '}
               {availableProjectsInFilter.length} Proj.
             </div>
@@ -2677,7 +2702,7 @@ export function App() {
               </span>
               <Target className="w-3 h-3 sm:w-4 sm:h-4 text-[#0284c7] shrink-0" />
             </div>
-            <div className="mt-0.5 sm:mt-2 text-xs sm:text-2xl font-black text-slate-900 dark:text-white leading-tight truncate">
+            <div className="mt-0.5 sm:mt-1.5 text-xs sm:text-base md:text-lg lg:text-xl font-black text-slate-900 dark:text-white leading-tight truncate">
               {allDossierTasks.length} {language === 'EN' ? 'Item(s)' : 'Élément(s)'}
             </div>
             <div className="mt-0.5 sm:mt-1 text-[8px] sm:text-[11px] text-emerald-600 font-bold truncate leading-tight">
@@ -2693,7 +2718,7 @@ export function App() {
               </span>
               <DollarSign className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-500 shrink-0" />
             </div>
-            <div className="mt-0.5 sm:mt-2 text-[11px] sm:text-xl font-black text-slate-900 dark:text-white truncate leading-tight">
+            <div className="mt-0.5 sm:mt-1.5 text-[11px] sm:text-sm md:text-base lg:text-lg font-black text-slate-900 dark:text-white truncate leading-tight">
               {formatCurrency(totalBudgetFCFA, currency, language)}
             </div>
             <div className="mt-0.5 sm:mt-1 text-[8px] sm:text-[11px] text-slate-500 truncate leading-tight">
@@ -2708,7 +2733,7 @@ export function App() {
               </span>
               <TrendingUp className="w-3 h-3 sm:w-4 sm:h-4 text-[#0284c7] shrink-0" />
             </div>
-            <div className="mt-0.5 sm:mt-2 text-xs sm:text-2xl font-black text-[#0284c7] dark:text-[#90D5FF] leading-tight">
+            <div className="mt-0.5 sm:mt-1.5 text-xs sm:text-base md:text-lg lg:text-xl font-black text-[#0284c7] dark:text-[#90D5FF] leading-tight">
               {completionPct}%
             </div>
             <div className="w-full h-1 sm:h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden mt-1 sm:mt-2">
@@ -3455,14 +3480,14 @@ export function App() {
             <Kanban className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#0284c7] dark:text-[#90D5FF] shrink-0" />
             <span>
               {language === 'EN'
-                ? 'Interactive Kanban Board (Driven by Real Execution)'
-                : 'Tableau Kanban Interactif (Basé sur l’Exécution Réelle)'}
+                ? 'Kanban Board — Read-Only Live Tracking'
+                : 'Tableau Kanban — Suivi Opérationnel en Lecture Seule'}
             </span>
           </h2>
           <p className="text-[9.5px] sm:text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
             {language === 'EN'
-              ? 'Move a task or milestone from one status column to another: its planned dates automatically recalculate while preserving its duration and predecessor logic.'
-              : 'Déplacez une tâche ou un jalon d’une colonne de statut vers une autre : ses dates prévues se recalculent automatiquement en conservant sa durée et la logique des antécédents.'}
+              ? 'Read-only real-time tracking of tasks and milestones by execution status. Task statuses and dates are automatically computed from the Tracking tab.'
+              : 'Consultation en lecture seule du flux d’avancement des tâches et jalons par statut d’exécution. Les statuts et dates sont calculés automatiquement depuis l’onglet Suivi.'}
           </p>
         </div>
 
@@ -3489,7 +3514,7 @@ export function App() {
 
                 <div className="p-2 sm:p-2.5 space-y-2 sm:space-y-2.5 flex-1 max-h-[65vh] overflow-y-auto">
                   {colRows.map(r => {
-                    const { task, code, projectId, metrics } = r;
+                    const { task, code, metrics } = r;
                     const isJalon = task.type === 'jalon';
 
                     return (
@@ -3522,33 +3547,13 @@ export function App() {
 
                         <div className="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 space-y-0.5">
                           <div className="truncate">
-                            {language === 'EN' ? 'Assignee:' : 'Réalisateur :'}{' '}
+                            {language === 'EN' ? 'Responsible Post:' : 'Poste Responsable :'}{' '}
                             {task.assignee}
                           </div>
                           <div>
                             {language === 'EN' ? 'Planned:' : 'Prévu:'}{' '}
                             {task.startDate} → {task.endDate}
                           </div>
-                        </div>
-
-                        <div className="pt-1.5 sm:pt-2 border-t border-slate-100 dark:border-slate-700 flex flex-wrap gap-1">
-                          {columns
-                            .filter(c => c.status !== col.status)
-                            .map(targetCol => (
-                              <button
-                                key={targetCol.status}
-                                onClick={() =>
-                                  handleMoveTaskInKanban(
-                                    projectId,
-                                    task.id,
-                                    targetCol.status
-                                  )
-                                }
-                                className="px-1.5 sm:px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 hover:bg-[#90D5FF] hover:text-slate-950 text-[8.5px] sm:text-[9px] font-bold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
-                              >
-                                → {targetCol.title}
-                              </button>
-                            ))}
                         </div>
                       </div>
                     );

@@ -1543,14 +1543,6 @@ export const SlideDeckWorkspace: React.FC<SlideDeckWorkspaceProps> = ({
                       Réf. normative : {currentMatrixDef.normativeRef}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleAddMatrixRow(activeMatrixTab)}
-                    className="px-2.5 py-1 rounded-md bg-[#0c4a6e] text-[#90D5FF] text-[10px] font-extrabold flex items-center gap-1 cursor-pointer"
-                  >
-                    <Plus className="w-3 h-3" />
-                    Ajouter ligne
-                  </button>
                 </div>
 
                 <table className="w-full border-collapse text-left">
@@ -1564,9 +1556,6 @@ export const SlideDeckWorkspace: React.FC<SlideDeckWorkspaceProps> = ({
                           {col.label}
                         </th>
                       ))}
-                      <th className="px-2 py-1 text-[9px] font-extrabold uppercase border border-slate-200 w-8">
-                        Suppr.
-                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1592,17 +1581,6 @@ export const SlideDeckWorkspace: React.FC<SlideDeckWorkspaceProps> = ({
                             />
                           </td>
                         ))}
-                        <td className="p-1 border border-slate-200 text-center">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleRemoveMatrixRow(activeMatrixTab, rIdx)
-                            }
-                            className="p-1 text-rose-500 hover:bg-rose-50 rounded-xs cursor-pointer"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </td>
                       </tr>
                     ))}
                   </tbody>

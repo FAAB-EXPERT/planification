@@ -1551,18 +1551,7 @@ export const DocumentGeneratorView: React.FC<DocumentGeneratorViewProps> = ({
                             </>
                           )}
                         </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleAddMatrixRow(def.id)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#0c4a6e] hover:bg-[#075985] text-white text-[10px] sm:text-xs font-extrabold cursor-pointer transition-colors"
-                        >
-                          <Plus className="w-3.5 h-3.5 text-[#90D5FF]" />
-                          <span>
-                            {language === 'EN' ? '+ Add row' : '+ Ajouter une ligne'}
-                          </span>
-                        </button>
-
+                        {/* Le bouton d'ajout de ligne est désactivé conformément à la règle stricte de non-ajout/non-suppression */}
                         <button
                           type="button"
                           onClick={() => handleResetSingleMatrixFromApp(def.id)}
@@ -1604,9 +1593,9 @@ export const DocumentGeneratorView: React.FC<DocumentGeneratorViewProps> = ({
                         </button>
                       </div>
                     ) : (
-                      <div className="overflow-x-auto max-h-[420px]">
-                        <table className="w-full border-collapse text-left text-[10.5px] sm:text-xs">
-                          <thead className="sticky top-0 z-10 bg-[#0c4a6e] text-white shadow-2xs">
+                      <div className="overflow-x-auto max-h-[560px] w-full border border-sky-100 dark:border-slate-800 rounded-lg shadow-inner">
+                        <table className="w-full border-collapse text-left text-xs">
+                          <thead className="sticky top-0 z-10 bg-[#0c4a6e] text-white shadow-md">
                             <tr>
                               {def.columns.map(col => {
                                 const isCurrencyCol = [
@@ -1620,20 +1609,23 @@ export const DocumentGeneratorView: React.FC<DocumentGeneratorViewProps> = ({
                                   'Montant_Contractuel_Reel',
                                   'Budget_Additionnel_Requis'
                                 ].includes(col.key);
+                                const computedMinWidth = col.minWidthPx
+                                  ? `${Math.max(Math.round(col.minWidthPx * 1.35), 170)}px`
+                                  : '180px';
                                 return (
                                   <th
                                     key={col.key}
-                                    style={{ minWidth: col.minWidthPx ? `${col.minWidthPx}px` : '130px' }}
-                                    className={`px-2.5 py-2 font-black uppercase tracking-wider border-r border-sky-800 text-[9.5px] sm:text-[10px] leading-tight ${
+                                    style={{ minWidth: computedMinWidth }}
+                                    className={`px-3.5 py-3 font-black uppercase tracking-wider border-r border-sky-800/80 text-[10.5px] sm:text-xs leading-snug ${
                                       col.isRightAligned ? 'text-right' : 'text-left'
                                     }`}
                                   >
-                                    <div>
+                                    <div className="font-extrabold text-white">
                                       {col.label}
                                       {isCurrencyCol ? ` (${currency})` : ''}
                                     </div>
                                     {col.helperFormula && (
-                                      <div className="text-[8.5px] font-semibold text-[#90D5FF] normal-case mt-0.5">
+                                      <div className="text-[9px] font-semibold text-[#90D5FF] normal-case mt-1 bg-sky-950/40 px-1.5 py-0.5 rounded inline-block">
                                         {language === 'EN' ? 'Formula:' : 'Formule :'}{' '}
                                         {col.helperFormula}
                                       </div>
@@ -1641,20 +1633,14 @@ export const DocumentGeneratorView: React.FC<DocumentGeneratorViewProps> = ({
                                   </th>
                                 );
                               })}
-                              <th className="px-2.5 py-2 font-black uppercase tracking-wider text-center text-[9.5px] sm:text-[10px] w-24 shrink-0">
-                                Action
-                              </th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                          <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
                             {filteredRowEntries.map(({ row, originalIndex }) => {
-                              const firstColKey = def.columns[0]?.key || 'Code';
-                              const rowCodeLabel =
-                                row[firstColKey] || `Ligne #${originalIndex + 1}`;
                               return (
                                 <tr
                                   key={originalIndex}
-                                  className="hover:bg-sky-50/40 dark:hover:bg-slate-800/50 transition-colors"
+                                  className="hover:bg-sky-50/50 dark:hover:bg-slate-800/60 transition-colors"
                                 >
                                   {def.columns.map(col => {
                                     const cellVal = row[col.key] ?? '';
@@ -1684,12 +1670,12 @@ export const DocumentGeneratorView: React.FC<DocumentGeneratorViewProps> = ({
                                       return (
                                         <td
                                           key={col.key}
-                                          className="px-2.5 py-2 bg-sky-50/70 dark:bg-slate-800/90 border-r border-slate-200 dark:border-slate-800 align-top text-right font-black tabular-nums text-[#0c4a6e] dark:text-[#90D5FF]"
+                                          className="px-3.5 py-3 bg-sky-50/80 dark:bg-slate-800/90 border-r border-slate-200 dark:border-slate-800 align-top text-right font-black tabular-nums text-[#0c4a6e] dark:text-[#90D5FF]"
                                         >
-                                          <div className="px-2 py-1 rounded bg-white/90 dark:bg-slate-900 border border-sky-200 dark:border-slate-700 inline-block min-w-[70px] text-right">
+                                          <div className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-sky-200 dark:border-slate-700 inline-block min-w-[90px] text-right font-black text-xs shadow-xs">
                                             {displayComputed}
                                           </div>
-                                          <div className="text-[8px] font-bold uppercase text-[#0284c7] dark:text-sky-400 mt-0.5">
+                                          <div className="text-[9px] font-bold uppercase text-[#0284c7] dark:text-sky-400 mt-1">
                                             {language === 'EN'
                                               ? 'Auto calc.'
                                               : 'Calcul auto'}
@@ -1701,9 +1687,9 @@ export const DocumentGeneratorView: React.FC<DocumentGeneratorViewProps> = ({
                                     return (
                                       <td
                                         key={col.key}
-                                        className={`p-1.5 border-r border-slate-200 dark:border-slate-800 align-top ${
+                                        className={`p-2.5 sm:p-3 border-r border-slate-200 dark:border-slate-800 align-top ${
                                           isMissing
-                                            ? 'bg-amber-50/60 dark:bg-amber-950/20'
+                                            ? 'bg-amber-50/70 dark:bg-amber-950/25'
                                             : ''
                                         }`}
                                       >
@@ -1718,7 +1704,7 @@ export const DocumentGeneratorView: React.FC<DocumentGeneratorViewProps> = ({
                                                 e.target.value
                                               )
                                             }
-                                            className="w-full px-2 py-1.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#90D5FF]"
+                                            className="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#90D5FF] shadow-xs"
                                           >
                                             {col.options.map(opt => (
                                               <option key={opt} value={opt}>
@@ -1728,7 +1714,7 @@ export const DocumentGeneratorView: React.FC<DocumentGeneratorViewProps> = ({
                                           </select>
                                         ) : col.inputType === 'textarea' ? (
                                           <textarea
-                                            rows={2}
+                                            rows={3}
                                             value={cellVal}
                                             placeholder={
                                               col.placeholder ||
@@ -1744,10 +1730,10 @@ export const DocumentGeneratorView: React.FC<DocumentGeneratorViewProps> = ({
                                                 e.target.value
                                               )
                                             }
-                                            className={`w-full px-2 py-1 rounded-md bg-white dark:bg-slate-800 border text-[11px] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#90D5FF] ${
+                                            className={`w-full min-h-[72px] px-3 py-2 rounded-lg bg-white dark:bg-slate-800 border text-xs leading-relaxed text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#90D5FF] shadow-xs ${
                                               isMissing
                                                 ? 'border-amber-400 dark:border-amber-600'
-                                                : 'border-slate-200 dark:border-slate-700'
+                                                : 'border-slate-300 dark:border-slate-700'
                                             }`}
                                           />
                                         ) : (
@@ -1783,19 +1769,19 @@ export const DocumentGeneratorView: React.FC<DocumentGeneratorViewProps> = ({
                                                 storedVal
                                               );
                                             }}
-                                            className={`w-full px-2 py-1.5 rounded-md bg-white dark:bg-slate-800 border text-[11px] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#90D5FF] ${
+                                            className={`w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-800 border text-xs leading-relaxed text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#90D5FF] shadow-xs ${
                                               col.isRightAligned
                                                 ? 'text-right font-bold tabular-nums'
                                                 : ''
                                             } ${
                                               isMissing
                                                 ? 'border-amber-400 dark:border-amber-600'
-                                                : 'border-slate-200 dark:border-slate-700'
+                                                : 'border-slate-300 dark:border-slate-700'
                                             }`}
                                           />
                                         )}
                                         {isMissing && (
-                                          <div className="mt-0.5 text-[8.5px] font-extrabold text-amber-700 dark:text-amber-400 flex items-center gap-1">
+                                          <div className="mt-1 text-[9px] font-extrabold text-amber-700 dark:text-amber-400 flex items-center gap-1">
                                             <span>
                                               {language === 'EN'
                                                 ? '⚠ To complete'
@@ -1806,31 +1792,6 @@ export const DocumentGeneratorView: React.FC<DocumentGeneratorViewProps> = ({
                                       </td>
                                     );
                                   })}
-
-                                  {/* Bouton Supprimer la ligne */}
-                                  <td className="p-1.5 text-center align-middle">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setPendingMatrixRowDelete({
-                                          matrixId: def.id,
-                                          rowIndex: originalIndex,
-                                          rowCode: rowCodeLabel
-                                        })
-                                      }
-                                      title={
-                                        language === 'EN'
-                                          ? 'Delete row'
-                                          : 'Supprimer la ligne'
-                                      }
-                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 text-rose-600 dark:text-rose-400 text-[10px] font-bold cursor-pointer transition-colors"
-                                    >
-                                      <Trash2 className="w-3 h-3 shrink-0" />
-                                      <span>
-                                        {language === 'EN' ? 'Delete' : 'Supprimer'}
-                                      </span>
-                                    </button>
-                                  </td>
                                 </tr>
                               );
                             })}
